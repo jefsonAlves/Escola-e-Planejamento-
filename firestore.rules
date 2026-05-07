@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 256;
+    }
+
+    function isValidAppState(data) {
+      return data.get('updatedAt', request.time) is timestamp
+             && data.get('schoolName', '') is string
+             && data.get('teacherName', '') is string
+             && data.get('classesStr', '') is string
+             && data.get('occurrencesStr', '') is string
+             && data.get('birthDate', '') is string
+             && data.get('cpf', '') is string
+             && data.get('password', '') is string
+             && data.get('googleCalendarEventsStr', '') is string
+             && data.get('googleClassroomActivitiesStr', '') is string
+             && data.get('googleSynced', false) is bool
+             && data.get('role', '') is string
+             && (data.get('avatarUrl', '') is string || data.get('avatarUrl', null) == null)
+             && data.get('email', '') is string
+             && data.get('displayName', '') is string
+             && (data.get('photoURL', '') is string || data.get('photoURL', null) == null);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidId(userId);
+    }
+  }
+}

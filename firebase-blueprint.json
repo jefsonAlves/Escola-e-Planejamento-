@@ -1,0 +1,27 @@
+{
+  "entities": {
+    "AppState": {
+      "title": "AppState",
+      "description": "The complete exported AppState.",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "cpf": { "type": "string" },
+        "password": { "type": "string" },
+        "googleSynced": { "type": "boolean" },
+        "classes": { "type": "string", "description": "JSON stringified" },
+        "occurrences": { "type": "string", "description": "JSON stringified" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["schoolName", "teacherName"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/AppState" },
+      "description": "User's master app state."
+    }
+  }
+}

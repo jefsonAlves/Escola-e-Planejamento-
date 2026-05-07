@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-lexend: "Lexend", sans-serif;
+  --font-manrope: "Manrope", sans-serif;
+  
+  --color-primary: #00236f;
+  --color-secondary: #712ae2;
+  --color-accent: #ffb691;
+  --color-surface-base: var(--bg-surface-base);
+}
+
+@layer base {
+  :root {
+    --bg-surface-base: #faf8ff;
+    --bg-glass: rgba(255, 255, 255, 0.6);
+    --text-base: #1a1b21;
+    --glass-border: rgba(255, 255, 255, 0.3);
+  }
+
+  .dark {
+    --bg-surface-base: #0f172a; /* slate-900 */
+    --bg-glass: rgba(30, 41, 59, 0.6); /* slate-800 with 60% opacity */
+    --text-base: #f8fafc; /* slate-50 */
+    --glass-border: rgba(255, 255, 255, 0.05);
+  }
+
+  body {
+    @apply bg-surface-base font-manrope text-[var(--text-base)] antialiased transition-colors duration-300;
+    -webkit-tap-highlight-color: transparent;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  h1, h2, h3, h4 {
+    @apply font-lexend transition-colors duration-300;
+  }
+
+  button, a {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-[var(--bg-glass)] backdrop-blur-xl border border-[var(--glass-border)] shadow-sm transition-colors duration-300;
+  }
+  
+  .primary-gradient {
+    @apply bg-gradient-to-br from-[#00236f] to-[#712ae2];
+  }
+  
+  .ai-glow {
+    box-shadow: 0 0 40px rgba(113, 42, 226, 0.15);
+  }
+}
+
+/* Hide scrollbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

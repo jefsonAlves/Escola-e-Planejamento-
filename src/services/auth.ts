@@ -1,6 +1,6 @@
 import { App, URLOpenListenerEvent } from '@capacitor/app';
-import { getAuth, signInWithCredential, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { signInWithCredential, GoogleAuthProvider } from 'firebase/auth';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export const initGoogleAuthListener = (onAuthSuccess: (token: string) => void) => {
   App.addListener('appUrlOpen', async (event: URLOpenListenerEvent) => {
@@ -22,12 +22,9 @@ export const initGoogleAuthListener = (onAuthSuccess: (token: string) => void) =
         
         if (idToken) {
           try {
-            const auth = getAuth();
+            const { db, auth } = await import('../firebase');
             const credential = GoogleAuthProvider.credential(idToken);
             const userCredential = await signInWithCredential(auth, credential);
-            
-            // Create or update teacher profile in Firestore
-            const { db } = await import('../firebase');
             await setDoc(doc(db, 'users', userCredential.user.uid), {
               email: userCredential.user.email,
               displayName: userCredential.user.displayName,
@@ -48,8 +45,9 @@ export const initGoogleAuthListener = (onAuthSuccess: (token: string) => void) =
   });
 };
 
+import { auth } from '../firebase';
+
 export const logout = () => {
-  const auth = getAuth();
   auth.signOut();
   localStorage.removeItem('google_access_token');
   window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: null }));

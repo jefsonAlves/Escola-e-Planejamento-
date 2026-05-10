@@ -11,6 +11,8 @@
   --color-surface-base: var(--bg-surface-base);
 }
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     --bg-surface-base: #faf8ff;

@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db, messaging } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
@@ -20,13 +20,14 @@ declare global {
   }
 }
 
-type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'occurrence' | 'settings';
+type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'occurrence' | 'settings' | 'classes' | 'director' | 'materials';
 
 interface StudentEvaluation {
   id: string;
   method: string;
   points: number;
   date: string;
+  bimester?: string;
 }
 
 interface Student {
@@ -55,7 +56,7 @@ const TEACHER_AVATAR = 'https://lh3.googleusercontent.com/aida-public/AB6AXuAAwf
 
 // --- Shared Components ---
 
-const Header = ({ title, showBack, onBack, onSettings, avatarUrl }: { title: string; showBack?: boolean; onBack?: () => void; onSettings?: () => void; avatarUrl?: string }) => {
+const Header = ({ title, showBack, onBack, onSettings, avatarUrl, onNavigateDirector }: { title: string; showBack?: boolean; onBack?: () => void; onSettings?: () => void; avatarUrl?: string; onNavigateDirector?: () => void }) => {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   
   const toggleTheme = () => {
@@ -87,9 +88,13 @@ const Header = ({ title, showBack, onBack, onSettings, avatarUrl }: { title: str
             <Settings className="w-5 h-5" />
           </button>
         )}
-        <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-slate-200 dark:border-slate-700 flex-shrink-0">
-          <img src={avatarUrl || TEACHER_AVATAR} alt="User Avatar" className="w-full h-full object-cover" />
-        </div>
+        <motion.div 
+          whileTap={{ scale: 0.9 }}
+          onClick={onNavigateDirector}
+          className="w-10 h-10 rounded-full overflow-hidden border-2 border-slate-200 dark:border-slate-700 flex-shrink-0 cursor-pointer hover:border-primary/50 transition-colors"
+        >
+          <img src={avatarUrl?.trim() || TEACHER_AVATAR} alt="User Avatar" className="w-full h-full object-cover" />
+        </motion.div>
       </div>
     </header>
   );
@@ -216,6 +221,15 @@ interface Occurrence {
 
 // --- Screen Components ---
 
+const formatCPF = (val: string) => {
+  let v = val.replace(/\D/g, "");
+  if (v.length > 11) v = v.slice(0, 11);
+  v = v.replace(/(\d{3})(\d)/, "$1.$2");
+  v = v.replace(/(\d{3})(\d)/, "$1.$2");
+  v = v.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  return v;
+};
+
 const RegistrationScreen = ({ onComplete, onSwitchToLogin }: { onComplete: (data: AppState) => void, onSwitchToLogin: () => void }) => {
   const [step, setStep] = useState(0); // step 0 is for role selection
   const [role, setRole] = useState<'teacher' | 'student' | 'both'>('teacher');
@@ -224,6 +238,7 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin }: { onComplete: (data
   const [birthDate, setBirthDate] = useState('');
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   
   const [classes, setClasses] = useState<ClassData[]>([]);
   const [newClassName, setNewClassName] = useState('');
@@ -287,18 +302,24 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin }: { onComplete: (data
 
   const addStudent = () => {
     if (!newStudentName.trim() || !activeClassId) return;
+
+    // Support comma or newline separated names for batch addition
+    const names = newStudentName.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
+    if (names.length === 0) return;
+
     setClasses(classes.map(c => {
       if (c.id === activeClassId) {
-        return {
-          ...c,
-          students: [...c.students, {
-            id: Date.now().toString(),
-            name: newStudentName,
+        const newStudents = names.map((name, idx) => ({
+            id: Date.now().toString() + idx,
+            name: name,
             avatar: '',
             grade: c.name,
             room: 'N/A',
-            status: 'none'
-          }]
+            status: 'none' as const
+        }));
+        return {
+          ...c,
+          students: [...c.students, ...newStudents]
         };
       }
       return c;
@@ -377,14 +398,24 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin }: { onComplete: (data
           {step === 1 && (
             <div className="space-y-4 text-left">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-primary uppercase ml-1">Nome da Escola</label>
-                <input 
-                  type="text" 
-                  value={schoolName}
-                  onChange={(e) => setSchoolName(e.target.value)}
-                  placeholder="Ex: Colégio Horizonte"
-                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                />
+                <label className="text-[10px] font-bold text-primary uppercase ml-1">Instituição de Ensino</label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    value={schoolName}
+                    onChange={(e) => setSchoolName(e.target.value)}
+                    placeholder="Ex: Colégio Horizonte ou escolha da lista"
+                    list="registered-schools"
+                    className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                  />
+                  <datalist id="registered-schools">
+                    <option value="Colégio Horizonte" />
+                    <option value="Escola Estadual São João" />
+                    <option value="Colégio Santa Cruz" />
+                    <option value="Instituto Federal" />
+                    <option value="CEFET" />
+                  </datalist>
+                </div>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-primary uppercase ml-1">Seu Nome Completo</label>
@@ -398,32 +429,44 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin }: { onComplete: (data
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-primary uppercase ml-1">Data de Nascimento</label>
-                <input 
-                  type="date" 
-                  value={birthDate}
-                  onChange={(e) => setBirthDate(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                />
+                <div className="relative">
+                  <input 
+                    type="date" 
+                    value={birthDate}
+                    onChange={(e) => setBirthDate(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-60 hover:[&::-webkit-calendar-picker-indicator]:opacity-100"
+                  />
+                </div>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-primary uppercase ml-1">CPF de Acesso</label>
                 <input 
                   type="text" 
                   value={cpf}
-                  onChange={(e) => setCpf(e.target.value)}
-                  placeholder="Apenas números ou com formatação"
+                  onChange={(e) => setCpf(formatCPF(e.target.value))}
+                  placeholder="000.000.000-00"
+                  inputMode="numeric"
                   className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
                 />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-primary uppercase ml-1">Senha de Acesso</label>
-                <input 
-                  type="password" 
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Sua senha secreta"
-                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                />
+                <div className="relative">
+                  <input 
+                    type={showPassword ? "text" : "password"} 
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Sua senha secreta"
+                    className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
               <button 
                 onClick={nextStep}
@@ -503,13 +546,12 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin }: { onComplete: (data
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-primary uppercase ml-1">Novo Aluno</label>
                     <div className="flex gap-2">
-                      <input 
-                        type="text" 
+                      <textarea 
                         value={newStudentName}
                         onChange={(e) => setNewStudentName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && addStudent()}
-                        placeholder="Ex: João Silva"
-                        className="flex-1 bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), addStudent())}
+                        placeholder="Ex: João Silva ou cole uma lista (separada por vírgula ou linha)"
+                        className="flex-1 bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors min-h-[50px] resize-y"
                       />
                       <button onClick={addStudent} className="bg-secondary text-white p-3 rounded-xl hover:bg-secondary/90 transition-colors">
                         <Plus className="w-5 h-5" />
@@ -790,7 +832,7 @@ const GoogleIntegrationBlocks = ({ appData, onSyncGoogle, isSyncingGoogle, onSho
 };
 
 const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotification, onSyncGoogle, isSyncingGoogle, onUpdateActivities }: { onNavigate: (screen: Screen) => void, onNewOccurrence: () => void, appData: AppState, onShowNotification: (msg: string) => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean, onUpdateActivities?: (activities: GoogleCourseWork[]) => void }) => {
-  const allStudents = appData.classes.flatMap(c => c.students) || [];
+  const allStudents = (appData.classes || []).flatMap(c => c.students) || [];
   const totalStudents = allStudents.length;
   
   const presentOrLate = allStudents.filter(s => s.status === 'present' || s.status === 'late').length;
@@ -812,7 +854,7 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
   const attendanceOffset = 226 - (226 * attendancePercent) / 100;
   const activityOffset = 226 - (226 * activityPercent) / 100;
 
-  const totalClasses = appData.classes.length;
+  const totalClasses = (appData.classes || []).length;
   const oneMonthAgo = new Date();
   oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
   const recentOccurrencesCount = appData.occurrences.filter(o => new Date(o.date) >= oneMonthAgo).length;
@@ -824,21 +866,33 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
 
       {/* Resumo Geral */}
       <section className="grid grid-cols-3 gap-3">
-        <div className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center text-center">
+        <motion.button 
+          whileTap={{ scale: 0.9 }}
+          onClick={() => onNavigate('classes')}
+          className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center text-center hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
+        >
           <Book className="w-5 h-5 text-primary mb-2" />
           <span className="text-2xl font-extrabold text-[#1a1b21] dark:text-slate-50">{totalClasses}</span>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Turmas</span>
-        </div>
-        <div className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center text-center">
+        </motion.button>
+        <motion.button 
+          whileTap={{ scale: 0.9 }}
+          onClick={() => onNavigate('classes')}
+          className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center text-center hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
+        >
           <Users className="w-5 h-5 text-secondary mb-2" />
           <span className="text-2xl font-extrabold text-[#1a1b21] dark:text-slate-50">{totalStudents}</span>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Alunos</span>
-        </div>
-        <div className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center text-center">
+        </motion.button>
+        <motion.button 
+          whileTap={{ scale: 0.9 }}
+          onClick={() => onNavigate('reports')}
+          className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center text-center hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
+        >
           <FileText className="w-5 h-5 text-amber-500 mb-2" />
           <span className="text-2xl font-extrabold text-[#1a1b21] dark:text-slate-50">{recentOccurrencesCount}</span>
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Ocorrências<br/>(30 dias)</span>
-        </div>
+        </motion.button>
       </section>
 
       {/* Next Class */}
@@ -847,7 +901,7 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
           <Book className="w-32 h-32" />
         </div>
         <span className="text-[11px] font-extrabold text-secondary uppercase tracking-[0.2em] mb-2 block">PRÓXIMA AULA</span>
-        <h2 className="text-2xl font-bold text-primary mb-4">{appData.classes[0]?.name || 'Adicione uma turma'}</h2>
+        <h2 className="text-2xl font-bold text-primary mb-4">{(appData.classes || [])[0]?.name || 'Adicione uma turma'}</h2>
         <div className="flex flex-wrap gap-4 text-slate-500 dark:text-slate-400 text-sm mb-6 font-manrope">
           <div className="flex items-center gap-1.5 bg-slate-100/50 px-2 py-1 rounded-lg">
             <Clock className="w-4 h-4" />
@@ -858,12 +912,13 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
             <span>Lab 402</span>
           </div>
         </div>
-        <button 
-          onClick={() => onShowNotification('Preparação de materiais em desenvolvimento.')}
-          className="w-full primary-gradient text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-95 transition-all text-sm"
+        <motion.button 
+          whileTap={{ scale: 0.95 }}
+          onClick={() => onNavigate('materials')}
+          className="w-full primary-gradient text-white font-bold py-3.5 rounded-xl shadow-lg hover:shadow-xl transition-all text-sm mt-4"
         >
           Preparar Materiais
-        </button>
+        </motion.button>
       </section>
 
       {/* Quick Actions */}
@@ -998,7 +1053,7 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
             onChange={e => {setActiveClassId(e.target.value); setSearchQuery('');}}
             className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest bg-transparent border-0 outline-none p-0 cursor-pointer mb-1 block"
           >
-            {classes.map(c => <option key={c.id} value={c.id}>TURMA {c.name}</option>)}
+            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <h2 className="text-2xl font-bold text-primary">Chamada Inteligente</h2>
         </div>
@@ -1058,7 +1113,7 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
               onClick={() => onSelectStudent(student.id)}
             >
               <div className="relative">
-                {student.avatar ? (
+                {student.avatar && student.avatar.trim() !== '' ? (
                   <img src={student.avatar} alt={student.name} className={`w-12 h-12 rounded-full border-2 border-white ring-2 ring-slate-100 ${currentStatus === 'absent' ? 'grayscale opacity-50' : ''}`} />
                 ) : (
                   <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
@@ -1087,9 +1142,9 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
                   currentStatus === 'absent' ? 'text-red-500' : 
                   currentStatus === 'late' ? 'text-amber-600' : 'text-slate-400'
                 }`}>
-                  {currentStatus === 'present' ? `#0${student.id} • Presente` : 
+                  {currentStatus === 'present' ? `Presente` : 
                    currentStatus === 'absent' ? 'Falta' : 
-                   currentStatus === 'late' ? `Atraso (${student.offset || '15 min'})` : `#0${student.id} • Vazio`}
+                   currentStatus === 'late' ? `Atraso (${student.offset || '15 min'})` : `Vazio`}
                 </p>
               </div>
             </div>
@@ -1156,7 +1211,7 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?
     <div className="space-y-6 pb-32">
       {/* Student context */}
       <section className="glass-card rounded-2xl p-6 flex items-center gap-4">
-        {student?.avatar ? (
+        {student?.avatar && student.avatar.trim() !== '' ? (
           <img src={student.avatar} alt={student.name} className="w-16 h-16 rounded-full object-cover border-2 border-primary/20" />
         ) : (
           <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
@@ -1650,8 +1705,11 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
   const [diagText, setDiagText] = useState('');
 
   const [showEvalForm, setShowEvalForm] = useState(false);
+  const [evalMethodType, setEvalMethodType] = useState('Prova');
   const [evalMethod, setEvalMethod] = useState('');
   const [evalPoints, setEvalPoints] = useState<number | ''>('');
+  const [evalBimester, setEvalBimester] = useState('1º Bimestre');
+  const [filterBimester, setFilterBimester] = useState('Todos');
 
   const reportModules = [
     { id: 'attendance', title: 'Relatório de Frequência', desc: 'Resumo de faltas e presenças por período.', icon: Book },
@@ -1661,12 +1719,12 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
 
   const visibleModules = reportModules.filter(m => isStudent ? !m.teacherOnly : true);
 
-  const activeClass = appData.classes.find(c => c.id === activeClassId);
+  const activeClass = (appData.classes || []).find(c => c.id === activeClassId);
   const activeStudent = activeClass?.students.find(s => s.id === activeStudentId);
 
   const handleQuickSaveDiagnostic = () => {
     if (!activeClass || !activeStudent) return;
-    const newClasses = appData.classes.map(c => {
+    const newClasses = (appData.classes || []).map(c => {
       if (c.id === activeClassId) {
         return {
           ...c,
@@ -1681,7 +1739,7 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
 
   const handleSaveDiagnostic = () => {
     if (!activeClass || !activeStudent) return;
-    const newClasses = appData.classes.map(c => {
+    const newClasses = (appData.classes || []).map(c => {
       if (c.id === activeClassId) {
         return {
           ...c,
@@ -1697,24 +1755,28 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
 
   const handleSaveEval = () => {
     if (!activeClass || !activeStudent) return;
-    if (!evalMethod) { onShowNotification('Informe o método de avaliação'); return; }
+    
+    const finalMethod = evalMethodType === 'Outro' ? evalMethod.trim() : evalMethodType;
+    
+    if (!finalMethod) { onShowNotification('Informe o método de avaliação'); return; }
     if (evalPoints === '') { onShowNotification('Informe uma pontuação'); return; }
     
     // Auto-save method to class if it doesn't exist
     const methods = activeClass.evaluationMethods || [];
     let updatedMethods = methods;
-    if (!methods.includes(evalMethod)) {
-      updatedMethods = [...methods, evalMethod];
+    if (!methods.includes(finalMethod)) {
+      updatedMethods = [...methods, finalMethod];
     }
 
     const newEval: StudentEvaluation = {
       id: Date.now().toString(),
-      method: evalMethod,
+      method: finalMethod,
       points: Number(evalPoints),
-      date: new Date().toISOString()
+      date: new Date().toISOString(),
+      bimester: evalBimester
     };
 
-    const newClasses = appData.classes.map(c => {
+    const newClasses = (appData.classes || []).map(c => {
       if (c.id === activeClassId) {
         return {
           ...c,
@@ -1736,9 +1798,10 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
     onShowNotification('Avaliação adicionada!');
   };
 
-  const calculateTotalPoints = (evals?: StudentEvaluation[]) => {
+  const calculateTotalPoints = (evals?: StudentEvaluation[], filter?: string) => {
     if (!evals) return 0;
-    return evals.reduce((sum, e) => sum + e.points, 0);
+    const filtered = (filter && filter !== 'Todos') ? evals.filter(e => e.bimester === filter) : evals;
+    return filtered.reduce((sum, e) => sum + e.points, 0);
   };
 
   if (!activeModule) {
@@ -1786,7 +1849,7 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
         <div className="space-y-3">
           <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest ml-1">Selecione uma Turma</h3>
           <div className="space-y-3">
-            {appData.classes.map(c => (
+            {(appData.classes || []).map(c => (
               <div key={c.id} onClick={() => setActiveClassId(c.id)} className="glass-card p-4 rounded-xl flex justify-between items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                 <span className="font-bold text-slate-800 dark:text-slate-100">{c.name}</span>
                 <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{c.students.length} alunos</span>
@@ -1806,25 +1869,53 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
             </div>
           )}
           
+          {/* Class Level Bimester Filter for Evaluations */}
+          {activeModule === 'evaluations' && !isStudent && (
+            <div className="mb-4">
+              <select value={filterBimester} onChange={e => setFilterBimester(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-sm font-bold px-4 py-3 rounded-xl outline-none focus:border-primary cursor-pointer transition-colors shadow-sm">
+                <option value="Todos">Somar Todos os Bimestres</option>
+                <option value="1º Bimestre">Filtrar: 1º Bimestre</option>
+                <option value="2º Bimestre">Filtrar: 2º Bimestre</option>
+                <option value="3º Bimestre">Filtrar: 3º Bimestre</option>
+                <option value="4º Bimestre">Filtrar: 4º Bimestre</option>
+              </select>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {(isStudent ? appData.classes.flatMap(c => c.students) : activeClass?.students || []).map(student => (
+            {(isStudent ? (appData.classes || []).flatMap(c => c.students) : activeClass?.students || []).map(student => (
               <div key={student.id} onClick={() => { 
                 if (isStudent) {
-                  const studentClass = appData.classes.find(c => c.students.some(s => s.id === student.id));
+                  const studentClass = (appData.classes || []).find(c => c.students.some(s => s.id === student.id));
                   if (studentClass) setActiveClassId(studentClass.id);
                 }
                 setActiveStudentId(student.id); 
-              }} className="glass-card p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:border-primary/50 transition-colors border border-transparent">
-                <img src={student.avatar} alt="Avatar" className="w-10 h-10 rounded-full object-cover shrink-0" />
-                <div className="flex-1">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate">{student.name}</h4>
-                  {activeModule === 'evaluations' && (
-                    <p className="text-xs font-bold text-primary mt-1">{calculateTotalPoints(student.evaluations)} pts totais</p>
-                  )}
+              }} className="glass-card p-4 rounded-xl flex items-center gap-4 cursor-pointer hover:border-primary/50 transition-colors border border-transparent group">
+                {student.avatar && student.avatar.trim() !== '' ? (
+                  <img src={student.avatar} alt="Avatar" className="w-10 h-10 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shrink-0">
+                    <UserCheck className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="flex-1 truncate">
+                  <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate group-hover:text-primary transition-colors">{student.name}</h4>
                   {activeModule === 'diagnostics' && student.diagnostic && (
                     <p className="text-[10px] uppercase font-bold text-emerald-500 mt-1 flex items-center gap-1"><Check className="w-3 h-3"/> Avaliado</p>
                   )}
+                  {activeModule === 'diagnostics' && !student.diagnostic && (
+                    <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 flex items-center gap-1">Pendente</p>
+                  )}
+                  {activeModule !== 'evaluations' && activeModule !== 'diagnostics' && (
+                    <p className="text-xs text-slate-500 capitalize">{student.status === 'present' ? 'Presente' : student.status === 'absent' ? 'Ausente' : 'Sem Status'}</p>
+                  )}
                 </div>
+                {activeModule === 'evaluations' && (
+                  <div className="bg-primary/10 text-primary px-3 py-1.5 rounded-lg flex flex-col items-center justify-center min-w-[70px]">
+                    <span className="text-lg font-extrabold leading-none">{calculateTotalPoints(student.evaluations, filterBimester)}</span>
+                    <span className="text-[10px] font-bold uppercase mt-0.5">pts</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1836,7 +1927,13 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
         <div className="space-y-6">
           <div className="flex items-center gap-4 glass-card p-4 rounded-2xl relative overflow-hidden">
             <div className={`absolute top-0 left-0 w-2 h-full bg-primary`}></div>
-            <img src={activeStudent.avatar} alt={activeStudent.name} className="w-14 h-14 rounded-full object-cover shadow-md ml-2" />
+            {activeStudent.avatar && activeStudent.avatar.trim() !== '' ? (
+              <img src={activeStudent.avatar} alt={activeStudent.name} className="w-14 h-14 rounded-full object-cover shadow-md ml-2" />
+            ) : (
+              <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 shadow-md ml-2 shrink-0">
+                <UserCheck className="w-7 h-7" />
+              </div>
+            )}
             <div>
               <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100">{activeStudent.name}</h3>
               <p className="text-xs font-bold text-slate-400 font-manrope">{activeClass.name}</p>
@@ -1891,12 +1988,21 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
           {/* Module: Evaluations */}
           {activeModule === 'evaluations' && (
             <div className="space-y-6">
-              <div className="glass-card p-5 rounded-2xl flex justify-between items-center">
-                <div>
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><Award className="w-5 h-5 text-primary"/> Pontuação Total</h4>
-                  <p className="text-xs text-slate-500 font-manrope mt-1">Soma de todas as avaliações</p>
+              <div className="glass-card p-5 rounded-2xl flex flex-col gap-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><Award className="w-5 h-5 text-primary"/> Pontuação Total</h4>
+                    <p className="text-xs text-slate-500 font-manrope mt-1">Soma das avaliações do período</p>
+                  </div>
+                  <div className="text-3xl font-extrabold text-primary">{calculateTotalPoints(activeStudent.evaluations, filterBimester)} pts</div>
                 </div>
-                <div className="text-3xl font-extrabold text-primary">{calculateTotalPoints(activeStudent.evaluations)} pts</div>
+                <select value={filterBimester} onChange={e => setFilterBimester(e.target.value)} className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-bold px-3 py-2 rounded-xl outline-none focus:ring-2 ring-primary/20 cursor-pointer">
+                  <option value="Todos">Todos os Bimestres</option>
+                  <option value="1º Bimestre">1º Bimestre</option>
+                  <option value="2º Bimestre">2º Bimestre</option>
+                  <option value="3º Bimestre">3º Bimestre</option>
+                  <option value="4º Bimestre">4º Bimestre</option>
+                </select>
               </div>
 
               <div className="glass-card p-5 rounded-2xl space-y-4">
@@ -1908,35 +2014,85 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
                 </div>
 
                 {showEvalForm && !isStudent && (
-                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4 mb-4">
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="bg-slate-100 dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4 mb-4 overflow-hidden">
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-500 uppercase ml-1">Método / Atividade</label>
-                      <input list="methods-list" type="text" value={evalMethod} onChange={e => setEvalMethod(e.target.value)} placeholder="Ex: Prova 1, Apresentação" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold" />
-                      <datalist id="methods-list">
-                        {(activeClass.evaluationMethods || []).map(m => <option key={m} value={m} />)}
-                      </datalist>
+                      <label className="text-xs font-bold text-slate-500 uppercase ml-1">Bimestre</label>
+                      <select value={evalBimester} onChange={e => setEvalBimester(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer transition-colors shadow-sm">
+                        <option value="1º Bimestre">1º Bimestre</option>
+                        <option value="2º Bimestre">2º Bimestre</option>
+                        <option value="3º Bimestre">3º Bimestre</option>
+                        <option value="4º Bimestre">4º Bimestre</option>
+                      </select>
                     </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-500 uppercase ml-1">Tipo de Avaliação</label>
+                      <select value={evalMethodType} onChange={e => setEvalMethodType(e.target.value)} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer transition-colors shadow-sm">
+                        <option value="Prova Bimestral">Prova Bimestral</option>
+                        <option value="Atividades e Trabalhos">Atividades e Trabalhos</option>
+                        <option value="Vistos no Caderno">Vistos no Caderno</option>
+                        <option value="Apresentação">Apresentação</option>
+                        <option value="Participação">Participação / Comportamento</option>
+                        <option value="Outro">Outro (Personalizado...)</option>
+                      </select>
+                    </div>
+                    {evalMethodType === 'Outro' && (
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 uppercase ml-1">Nome da Atividade</label>
+                        <input list="methods-list" type="text" value={evalMethod} onChange={e => setEvalMethod(e.target.value)} placeholder="Ex: Feira de Ciências" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold transition-colors shadow-sm" />
+                        <datalist id="methods-list">
+                          {(activeClass.evaluationMethods || []).map(m => <option key={m} value={m} />)}
+                        </datalist>
+                      </div>
+                    )}
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-500 uppercase ml-1">Pontos (pode ser negativo)</label>
-                      <input type="number" value={evalPoints} onChange={e => setEvalPoints(Number(e.target.value))} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold" />
+                      <input type="number" value={evalPoints} onChange={e => setEvalPoints(Number(e.target.value))} placeholder="Ex: 5" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold font-mono transition-colors shadow-sm" />
                     </div>
-                    <div className="flex gap-2 pt-2">
-                      <button onClick={() => setShowEvalForm(false)} className="flex-1 py-2.5 font-bold text-xs text-slate-500 bg-slate-200 dark:bg-slate-800 rounded-lg">Cancelar</button>
-                      <button onClick={handleSaveEval} className="flex-1 py-2.5 font-bold text-xs text-white bg-primary rounded-lg">Lançar Notas</button>
+                    
+                    <div className="flex gap-2 pt-3">
+                      <button onClick={() => setShowEvalForm(false)} className="flex-1 py-3 font-bold text-slate-500 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors rounded-xl font-manrope">Cancelar</button>
+                      <button onClick={handleSaveEval} className="flex-1 py-3 font-bold text-white bg-primary hover:bg-primary/90 transition-colors rounded-xl shadow-lg border-b-4 border-black/10 active:border-b-0 active:translate-y-1 font-manrope">Lançar Nota</button>
                     </div>
                   </motion.div>
                 )}
 
                 <div className="space-y-2">
                   {activeStudent.evaluations && activeStudent.evaluations.length > 0 ? (
-                    [...activeStudent.evaluations].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(ev => (
+                    [...activeStudent.evaluations]
+                      .filter(ev => filterBimester === 'Todos' || ev.bimester === filterBimester)
+                      .sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(ev => (
                       <div key={ev.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-700/50">
                         <div>
                           <p className="font-bold text-sm text-slate-800 dark:text-slate-100">{ev.method}</p>
-                          <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{new Date(ev.date).toLocaleDateString()}</p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">{ev.bimester || '1º Bimestre'} • {new Date(ev.date).toLocaleDateString()}</p>
                         </div>
-                        <div className={`font-extrabold ${ev.points >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                          {ev.points > 0 ? '+' : ''}{ev.points}
+                        <div className="flex items-center gap-3">
+                          <div className={`font-extrabold ${ev.points >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                            {ev.points > 0 ? '+' : ''}{ev.points}
+                          </div>
+                          {!isStudent && (
+                            <button onClick={() => {
+                              if (window.confirm('Excluir esta avaliação?')) {
+                                const newClasses = (appData.classes || []).map(c => {
+                                  if (c.id === activeClass.id) {
+                                    return {
+                                      ...c,
+                                      students: c.students.map(s => {
+                                        if (s.id === activeStudent.id) {
+                                          return { ...s, evaluations: s.evaluations?.filter(e => e.id !== ev.id) };
+                                        }
+                                        return s;
+                                      })
+                                    };
+                                  }
+                                  return c;
+                                });
+                                onUpdateClasses(newClasses);
+                              }
+                            }} className="p-1.5 rounded bg-slate-200/50 dark:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors">
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))
@@ -1975,6 +2131,278 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
   );
 };
 
+const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpdateClasses: (classes: ClassData[]) => void }) => {
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [newClassName, setNewClassName] = useState('');
+  const [newStudentText, setNewStudentText] = useState('');
+  const [editingClassId, setEditingClassId] = useState<string | null>(null);
+  const [editingClassName, setEditingClassName] = useState('');
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editingStudentName, setEditingStudentName] = useState('');
+
+  const currentClass = appData.classes?.find(c => c.id === selectedClassId);
+
+  const handleEditStudent = () => {
+    if (!editingStudentId || !editingStudentName.trim() || !selectedClassId) return;
+    const newName = editingStudentName.trim();
+    const updatedClasses = (appData.classes || []).map(c => {
+      if (c.id === selectedClassId) {
+        return { 
+          ...c, 
+          students: c.students.map(s => s.id === editingStudentId ? { ...s, name: newName } : s)
+        };
+      }
+      return c;
+    });
+    onUpdateClasses(updatedClasses);
+    setEditingStudentId(null);
+    setEditingStudentName('');
+  };
+
+  const handleEditClass = () => {
+    if (!editingClassId || !editingClassName.trim()) return;
+    const newName = editingClassName.trim();
+    const updatedClasses = (appData.classes || []).map(c => {
+      if (c.id === editingClassId) {
+        return { 
+          ...c, 
+          name: newName,
+          students: c.students.map(s => ({ ...s, grade: newName }))
+        };
+      }
+      return c;
+    });
+    onUpdateClasses(updatedClasses);
+    setEditingClassId(null);
+    setEditingClassName('');
+  };
+
+  const handleAddClass = () => {
+    if (!newClassName.trim()) return;
+    const newClass: ClassData = {
+      id: Date.now().toString(),
+      name: newClassName,
+      students: [],
+    };
+    onUpdateClasses([...(appData.classes || []), newClass]);
+    setNewClassName('');
+    setSelectedClassId(newClass.id);
+  };
+
+  const handleAddStudents = () => {
+    if (!newStudentText.trim() || !selectedClassId) return;
+    
+    const lines = newStudentText.split(/[\n,]+/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) return;
+
+    const updatedClasses = (appData.classes || []).map(c => {
+      if (c.id === selectedClassId) {
+        const newStudents = lines.map((name, i) => ({
+          id: Date.now().toString() + i,
+          name: name,
+          avatar: '',
+          grade: c.name,
+          room: 'N/A',
+          status: 'none' as const
+        }));
+        return { ...c, students: [...c.students, ...newStudents] };
+      }
+      return c;
+    });
+
+    onUpdateClasses(updatedClasses);
+    setNewStudentText('');
+  };
+
+  const handleRemoveStudent = (studentId: string) => {
+    const updatedClasses = (appData.classes || []).map(c => {
+      if (c.id === selectedClassId) {
+        return { ...c, students: c.students.filter(s => s.id !== studentId) };
+      }
+      return c;
+    });
+    onUpdateClasses(updatedClasses);
+  };
+
+  const handleRemoveClass = (classId: string) => {
+    const updatedClasses = (appData.classes || []).filter(c => c.id !== classId);
+    onUpdateClasses(updatedClasses);
+    if (selectedClassId === classId) {
+      setSelectedClassId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-6 pb-24">
+      {/* Header */}
+      <div className="flex justify-between items-end mb-4">
+        <div>
+          <h2 className="text-2xl font-bold text-primary">Gerenciar Turmas</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 font-manrope font-medium">Adicione turmas e alunos.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Classes List */}
+        <div className="space-y-4">
+          <div className="glass-card p-5 rounded-2xl flex gap-2">
+            <input 
+              type="text" 
+              value={newClassName}
+              onChange={(e) => setNewClassName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddClass()}
+              placeholder="Nome da Nova Turma..."
+              className="flex-1 bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium outline-none transition-colors"
+            />
+            <button 
+              onClick={handleAddClass}
+              className="bg-primary text-white p-3 rounded-xl hover:bg-primary/90 transition-colors shrink-0"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            {(appData.classes || []).map(c => (
+              <div 
+                key={c.id} 
+                className={`glass-card p-4 rounded-xl flex flex-col justify-center cursor-pointer transition-colors border-2 ${selectedClassId === c.id ? 'border-primary bg-primary/5' : 'border-transparent hover:border-primary/30'}`}
+              >
+                {editingClassId === c.id ? (
+                  <div className="flex gap-2">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={editingClassName}
+                      onChange={(e) => setEditingClassName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleEditClass()}
+                      className="flex-1 bg-white dark:bg-slate-800 border-2 border-primary px-3 py-2 rounded-lg font-bold outline-none"
+                    />
+                    <button
+                      onClick={handleEditClass}
+                      className="bg-primary text-white p-2 rounded-lg hover:bg-primary/90"
+                    >
+                      <Check className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => setEditingClassId(null)}
+                      className="bg-slate-200 dark:bg-slate-700 text-slate-500 p-2 rounded-lg"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex justify-between items-center">
+                    <div className="flex-1 flex items-center justify-between" onClick={() => setSelectedClassId(c.id)}>
+                      <span className="font-bold text-slate-800 dark:text-slate-100">{c.name}</span>
+                      <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{c.students.length} alunos</span>
+                    </div>
+                    <div className="flex items-center ml-3">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setEditingClassId(c.id); setEditingClassName(c.name); }}
+                        className="text-slate-400 hover:text-primary p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); if(window.confirm('Excluir esta turma?')) handleRemoveClass(c.id); }}
+                        className="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {!(appData.classes?.length) && (
+              <p className="text-center text-sm font-bold text-slate-400 py-8">Nenhuma turma cadastrada.</p>
+            )}
+          </div>
+        </div>
+
+        {/* Students List */}
+        {selectedClassId && currentClass && (
+          <div className="glass-card p-6 rounded-3xl space-y-4">
+            <h3 className="text-sm font-bold text-primary uppercase tracking-widest">Alunos em {currentClass.name}</h3>
+            
+            <div className="flex gap-2">
+              <textarea 
+                value={newStudentText}
+                onChange={(e) => setNewStudentText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleAddStudents())}
+                placeholder="Nomes separados por linha ou vírgula..."
+                className="flex-1 bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium outline-none transition-colors resize-none h-14"
+              />
+              <button 
+                onClick={handleAddStudents}
+                className="bg-secondary text-white p-3 rounded-xl hover:bg-secondary/90 transition-colors shrink-0"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+              {currentClass.students.map((s, index) => (
+                <div key={s.id} className="p-3 rounded-xl border border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800">
+                  {editingStudentId === s.id ? (
+                    <div className="flex gap-2 w-full">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={editingStudentName}
+                        onChange={(e) => setEditingStudentName(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleEditStudent()}
+                        className="flex-1 bg-slate-50 dark:bg-slate-900 border-2 border-primary px-3 py-2 rounded-lg font-bold outline-none text-sm"
+                      />
+                      <button
+                        onClick={handleEditStudent}
+                        className="bg-primary text-white p-2 rounded-lg hover:bg-primary/90 shrink-0"
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setEditingStudentId(null)}
+                        className="bg-slate-200 dark:bg-slate-700 text-slate-500 p-2 rounded-lg shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center">
+                      <div className="flex gap-3 items-center truncate">
+                        <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope truncate">{s.name}</span>
+                      </div>
+                      <div className="flex items-center ml-2 shrink-0">
+                        <button 
+                          onClick={() => { setEditingStudentId(s.id); setEditingStudentName(s.name); }}
+                          className="text-slate-400 hover:text-primary p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => { if(window.confirm('Excluir este aluno?')) handleRemoveStudent(s.id); }}
+                          className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {currentClass.students.length === 0 && (
+                <p className="text-center text-xs font-bold text-slate-400 py-4">Nenhum aluno nesta turma.</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSyncingGoogle }: { appData: AppState, onUpdateField: (field: string, value: string) => void, onLogout: () => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean }) => {
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1995,7 +2423,7 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
         <div className="flex flex-col items-center mb-6">
           <div className="relative">
             <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-slate-100 dark:border-slate-800 shadow-xl bg-slate-200">
-              <img src={appData.avatarUrl || TEACHER_AVATAR} alt="Avatar" className="w-full h-full object-cover" />
+              <img src={appData.avatarUrl?.trim() || TEACHER_AVATAR} alt="Avatar" className="w-full h-full object-cover" />
             </div>
             <label className="absolute bottom-0 right-0 bg-primary text-white p-2 text-xs rounded-full cursor-pointer shadow-lg hover:scale-105 transition-transform">
               <Camera className="w-4 h-4" />
@@ -2013,7 +2441,9 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
             </select>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-primary uppercase ml-1">Nome Completo</label>
+            <label className="text-[10px] font-bold text-primary uppercase ml-1">
+              {appData.role === 'student' ? 'Nome do Aluno' : 'Nome do Professor'}
+            </label>
             <input type="text" value={appData.teacherName} onChange={(e) => onUpdateField('teacherName', e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors" />
           </div>
           <div>
@@ -2021,8 +2451,26 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
             <input type="text" value={appData.schoolName} onChange={(e) => onUpdateField('schoolName', e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors" />
           </div>
           <div>
+            <label className="text-[10px] font-bold text-primary uppercase ml-1">Data de Nascimento</label>
+            <div className="relative">
+              <input 
+                type="date" 
+                value={appData.birthDate || ''} 
+                onChange={(e) => onUpdateField('birthDate', e.target.value)} 
+                className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-60 hover:[&::-webkit-calendar-picker-indicator]:opacity-100" 
+              />
+            </div>
+          </div>
+          <div>
             <label className="text-[10px] font-bold text-primary uppercase ml-1">CPF</label>
-            <input type="text" value={appData.cpf || ''} onChange={(e) => onUpdateField('cpf', e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors" />
+            <input 
+              type="text" 
+              value={appData.cpf || ''} 
+              onChange={(e) => onUpdateField('cpf', formatCPF(e.target.value))} 
+              inputMode="numeric"
+              placeholder="000.000.000-00"
+              className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors" 
+            />
           </div>
         </div>
       </div>
@@ -2055,9 +2503,10 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
   );
 };
 
-const LoginScreen = ({ appData, onLogin, onSwitchToRegister }: { appData: AppState | null, onLogin: () => void, onSwitchToRegister: () => void }) => {
+const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData }: { appData: AppState | null, onLogin: () => void, onSwitchToRegister: () => void, onWipeData?: () => void }) => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState('');
@@ -2065,7 +2514,7 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister }: { appData: AppSta
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const handleLogin = () => {
-    if (appData && cpf === appData.cpf && password === appData.password) {
+    if (appData && (cpf === appData.cpf || cpf.replace(/\D/g, '') === appData.cpf.replace(/\D/g, '')) && password === appData.password) {
       onLogin();
     } else {
       setError(true);
@@ -2108,8 +2557,12 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister }: { appData: AppSta
            window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
         }
       }
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
+        console.log("Login cancelado pelo usuário.");
+      } else {
+        console.error(e);
+      }
       setIsGoogleLoading(false);
     }
   };
@@ -2140,8 +2593,12 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister }: { appData: AppSta
         }
       }
     } catch (e: any) {
-      console.error(e);
-      setRecoveryError('Erro ao autenticar com o Google.');
+      if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
+        console.log("Recuperação cancelada pelo usuário.");
+      } else {
+        console.error(e);
+        setRecoveryError('Erro ao autenticar com o Google.');
+      }
     }
   };
 
@@ -2239,8 +2696,9 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister }: { appData: AppSta
               <input 
                 type="text" 
                 value={cpf}
-                onChange={(e) => {setCpf(e.target.value); setError(false);}}
-                placeholder="Seu CPF"
+                onChange={(e) => {setCpf(formatCPF(e.target.value)); setError(false);}}
+                placeholder="000.000.000-00"
+                inputMode="numeric"
                 className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
               />
             </div>
@@ -2256,13 +2714,22 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister }: { appData: AppSta
                   </button>
                 )}
               </div>
-              <input 
-                type="password" 
-                value={password}
-                onChange={(e) => {setPassword(e.target.value); setError(false);}}
-                placeholder="Sua senha"
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-              />
+              <div className="relative">
+                <input 
+                  type={showPassword ? "text" : "password"} 
+                  value={password}
+                  onChange={(e) => {setPassword(e.target.value); setError(false);}}
+                  placeholder="Sua senha"
+                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
             
             {error && (
@@ -2305,6 +2772,12 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister }: { appData: AppSta
             <button onClick={onSwitchToRegister} className="w-full mt-4 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors text-center">
               Não tem conta? Cadastre-se
             </button>
+            
+            {onWipeData && (
+               <button onClick={() => { if(window.confirm('Tem certeza? Isso apagará todos os dados cadastrados neste dispositivo.')) { onWipeData(); } }} className="w-full mt-8 text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors text-center uppercase tracking-widest flex items-center justify-center gap-1">
+                 Limpar todos os dados locais
+               </button>
+            )}
           </div>
         </div>
       </motion.div>
@@ -2321,8 +2794,13 @@ import { addToSyncQueue, processSyncQueue } from './sync/syncManager';
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>('dashboard');
   const [appData, setAppData] = useState<AppState | null>(() => {
-    const saved = localStorage.getItem('horizonte_data');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('horizonte_data');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error("Local storage parsing error: ", e);
+      return null;
+    }
   });
   const [isLogged, setIsLogged] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -2335,40 +2813,106 @@ export default function App() {
 
   useEffect(() => {
     // Initial sync connection setup
-    window.addEventListener('online', processSyncQueue);
-    return () => window.removeEventListener('online', processSyncQueue);
+    const handleOnline = () => {
+      processSyncQueue();
+      if (localStorage.getItem('google_access_token')) {
+        executeGoogleSync(true); // Silent sync
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    
+    // Attempt auto-sync right after mount if online and has token
+    if (navigator.onLine && localStorage.getItem('google_access_token')) {
+      handleOnline();
+    }
+
+    // Unify Duplicate Jefson profiles
+    const fixJefsonProfile = async () => {
+      try {
+        const rawCpf = '00995845301';
+        const formattedCpf = '009.958.453-01';
+        
+        const rawUser = await dexieDb.users.get(rawCpf);
+        const formattedUser = await dexieDb.users.get(formattedCpf);
+        
+        let mergedUser = formattedUser || rawUser;
+        if (mergedUser) {
+           mergedUser.localId = formattedCpf;
+           await dexieDb.users.put(mergedUser);
+           if (rawUser) {
+             await dexieDb.users.delete(rawCpf);
+           }
+        }
+        
+        const localData = localStorage.getItem('horizonte_data');
+        if (localData) {
+           const parsed = JSON.parse(localData);
+           if (parsed.cpf === rawCpf || parsed.cpf === formattedCpf) {
+              parsed.cpf = formattedCpf;
+              parsed.password = '81864895';
+              localStorage.setItem('horizonte_data', JSON.stringify(parsed));
+              
+              setAppData(prev => {
+                if (prev) {
+                  return { ...prev, cpf: formattedCpf, password: '81864895' };
+                }
+                return prev;
+              });
+           }
+        }
+      } catch (e) {
+        console.error("Migration error: ", e);
+      }
+    };
+    fixJefsonProfile();
+    
+    return () => window.removeEventListener('online', handleOnline);
   }, []);
 
   const updateAppData = (updater: (prev: AppState) => AppState) => {
-    if (!appData) return;
-    const newData = updater(appData);
-    setAppData(newData);
-    localStorage.setItem('horizonte_data', JSON.stringify(newData));
-    
-    // Bridge data into offline dexie
-    try {
-      if (newData.cpf && newData.schoolName) {
-        dexieDb.users.put({
-          localId: newData.cpf,
-          userId: auth.currentUser?.uid || 'local',
-          email: `${newData.cpf}@tarefaflow.local`,
-          displayName: newData.teacherName,
-          photoURL: newData.avatarUrl || '',
-          role: newData.role || 'teacher',
-          isSynced: false,
-          syncStatus: 'pending',
-          createdAt: Date.now(),
-          updatedAt: Date.now()
-        });
-        addToSyncQueue('UPDATE', 'users', newData.cpf, newData);
+    setAppData((prev) => {
+      let latestPrev = prev;
+      if (!latestPrev) {
+        // Try fallback to local storage
+        const saved = localStorage.getItem('horizonte_data');
+        if (saved) {
+           try {
+             latestPrev = JSON.parse(saved);
+           } catch(e) {}
+        }
       }
-    } catch(e) {
-      console.warn('Dexie Bridge error:', e);
-    }
-    
-    if (newData.googleSynced && auth.currentUser) {
-      syncToFirestore(newData);
-    }
+      if (!latestPrev) return prev; // Keep as is if still null
+      
+      const newData = updater(latestPrev);
+      localStorage.setItem('horizonte_data', JSON.stringify(newData));
+      
+      // Bridge data into offline dexie
+      try {
+        if (newData.cpf && newData.schoolName) {
+          dexieDb.users.put({
+            localId: newData.cpf,
+            userId: auth.currentUser?.uid || 'local',
+            email: `${newData.cpf}@tarefaflow.local`,
+            displayName: newData.teacherName,
+            photoURL: newData.avatarUrl || '',
+            role: newData.role || 'teacher',
+            isSynced: false,
+            syncStatus: 'pending',
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+          });
+        }
+      } catch(e) {
+        console.warn('Dexie Bridge error:', e);
+      }
+      
+      if (newData.googleSynced && auth.currentUser) {
+        syncToFirestore(newData);
+      }
+      
+      return newData;
+    });
   };
 
   useEffect(() => {
@@ -2478,6 +3022,9 @@ export default function App() {
       const calData = await calRes.json();
       
       if (!calRes.ok) {
+        if (calRes.status === 401) {
+          throw new Error('Sessão expirada. Por favor, conecte-se ao Google novamente.');
+        }
         console.error("Calendar API Error:", calData);
         triggerNotification('Agenda: API não ativada no Google Cloud.', 'critical');
       } else {
@@ -2500,6 +3047,9 @@ export default function App() {
         const tasksRes = await fetch('https://tasks.googleapis.com/tasks/v1/lists/@default/tasks', {
           headers: { Authorization: `Bearer ${token}` }
         });
+        if (tasksRes.status === 401) {
+          throw new Error('Sessão expirada. Por favor, conecte-se ao Google novamente.');
+        }
         if (tasksRes.ok) {
           const tasksData = await tasksRes.json();
           const tasksEvents = (tasksData.items || []).filter((t: any) => t.due).map((item: any) => {
@@ -2519,14 +3069,20 @@ export default function App() {
           });
           events = [...events, ...tasksEvents];
         }
-      } catch(e) {
-        console.warn("Tasks API Error", e);
+      } catch(e: any) {
+        if (e?.message !== 'Failed to fetch') {
+          console.warn("Tasks API Error", e);
+        }
       }
 
       const [studentCoursesRes, teacherCoursesRes] = await Promise.all([
         fetch('https://classroom.googleapis.com/v1/courses?studentId=me&courseStates=ACTIVE', { headers: { Authorization: `Bearer ${token}` } }),
         fetch('https://classroom.googleapis.com/v1/courses?teacherId=me&courseStates=ACTIVE', { headers: { Authorization: `Bearer ${token}` } })
       ]);
+      
+      if (studentCoursesRes.status === 401 || teacherCoursesRes.status === 401) {
+        throw new Error('Sessão expirada. Por favor, conecte-se ao Google novamente.');
+      }
       
       const studentCoursesData = studentCoursesRes.ok ? await studentCoursesRes.json() : { courses: [] };
       const teacherCoursesData = teacherCoursesRes.ok ? await teacherCoursesRes.json() : { courses: [] };
@@ -2537,7 +3093,7 @@ export default function App() {
       ];
 
       if (allCourses.length === 0) {
-        console.error("Classroom: No courses found.");
+        console.info("Classroom: No courses found. (Note: Student or Teacher role has no active Google Classroom courses)");
       } else {
         // Remove duplicates if any (though unlikely)
         const uniqueCourses = Array.from(new Map(allCourses.map(c => [c.id, c])).values());
@@ -2564,8 +3120,10 @@ export default function App() {
                 subMap.set(sub.courseWorkId, sub.state);
               }
             }
-          } catch (e) {
-            console.error("Error fetching submissions", e);
+          } catch (e: any) {
+            if (e?.message !== 'Failed to fetch') {
+              console.error("Error fetching submissions", e);
+            }
           }
           
           for (const w of works) {
@@ -2604,7 +3162,15 @@ export default function App() {
 
       return { events, activities: activities.slice(0, 10) };
     } catch (e: any) {
-      console.error("API Fetch Error", e);
+      if (e instanceof Error && e.message.includes('Sessão expirada')) {
+        localStorage.removeItem('google_access_token');
+        setAccessToken(null);
+        updateAppData(prev => ({ ...prev, googleSynced: false }));
+        throw e;
+      }
+      if (e?.message !== 'Failed to fetch') {
+        console.error("API Fetch Error", e);
+      }
       return { events: [], activities: [] };
     }
   };
@@ -2613,13 +3179,14 @@ export default function App() {
     setShowSyncConsent(true);
   };
 
-  const executeGoogleSync = async () => {
-    setShowSyncConsent(false);
-    setIsSyncingGoogle(true);
+  const executeGoogleSync = async (silent = false) => {
+    if (!silent) setShowSyncConsent(false);
+    if (!silent) setIsSyncingGoogle(true);
     try {
-      let token = accessToken;
+      let token = accessToken || localStorage.getItem('google_access_token');
 
       if (!token) {
+        if (silent) return; // Do not interrupt user in background
         // Must authorize to get token without popup
         if (window.Capacitor?.isNativePlatform()) {
           const clientId = '1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com'; // Placeholder
@@ -2630,7 +3197,7 @@ export default function App() {
           
           const { Browser } = await import('@capacitor/browser');
           await Browser.open({ url: authUrl });
-          setIsSyncingGoogle(false);
+          if (!silent) setIsSyncingGoogle(false);
           return; // Will come back via deep link
         } else {
           const provider = new GoogleAuthProvider();
@@ -2655,7 +3222,7 @@ export default function App() {
             setAccessToken(token);
             window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
           } else {
-            setIsSyncingGoogle(false);
+            if (!silent) setIsSyncingGoogle(false);
             return;
           }
         }
@@ -2663,11 +3230,16 @@ export default function App() {
       
       let fetchedData = null;
       if (token) {
-        triggerNotification('Sincronizando dados com o Google Workspace...', 'info');
+        if (!silent) triggerNotification('Sincronizando dados com o Google Workspace...', 'info');
         
+        let newEventsSynced = 0;
         // Push local unsynced events first
-        if (appData?.googleCalendarEvents) {
-          const unsynced = appData.googleCalendarEvents.filter(e => e.isCustom && !e.syncedToGoogle && e.dateIso);
+        let currentAppData = null;
+        try {
+          currentAppData = JSON.parse(localStorage.getItem('horizonte_data') || 'null');
+        } catch(e) { }
+        if (currentAppData?.googleCalendarEvents) {
+          const unsynced = currentAppData.googleCalendarEvents.filter((e: any) => e.isCustom && !e.syncedToGoogle && e.dateIso);
           for (const ev of unsynced) {
             try {
               const startDate = new Date(ev.dateIso!);
@@ -2688,20 +3260,35 @@ export default function App() {
                   end: { dateTime: endDate.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
                 })
               });
-              ev.syncedToGoogle = true; // Mark as synced
+              ev.syncedToGoogle = true; // Mark as synced locally later
+              newEventsSynced++;
             } catch (err) {
               console.error("Error creating event in Google Calendar", err);
             }
           }
+          if (newEventsSynced > 0) {
+             // We mutated currentAppData inside the loop, need to save it back before we rewrite with fetchedData.
+             // Actually `updateAppData` is used down below which will merge. We will merge the synced flag there
+             localStorage.setItem('horizonte_data', JSON.stringify(currentAppData));
+          }
         }
 
         fetchedData = await fetchGoogleWorkspaceData(token);
+        
+        if (newEventsSynced > 0) {
+          triggerNotification(`${newEventsSynced} agendamento(s) sincronizado(s) com sucesso.`, 'info');
+        }
       }
       
       const currentUser = auth.currentUser;
-      if (currentUser || appData) {
+      let latestAppData = null;
+      try {
+        latestAppData = JSON.parse(localStorage.getItem('horizonte_data') || 'null');
+      } catch (e) {}
+      
+      if (currentUser || latestAppData) {
         let newData = { 
-          ...appData!, 
+          ...latestAppData!, 
           googleSynced: true,
           ...(currentUser?.photoURL && { avatarUrl: currentUser.photoURL.replace('s96-c', 's256-c') }),
           ...(fetchedData && {
@@ -2711,14 +3298,20 @@ export default function App() {
         };
         // updateAppData instead of raw setAppData to trigger dexie bridge
         updateAppData(() => newData);
-        triggerNotification('Conta sincronizada! Acesse Agenda/Início para ver os dados.', 'info');
+        if (!silent) triggerNotification('Conta sincronizada! Acesse Agenda/Início para ver os dados.', 'info');
       }
     } catch (e: any) {
-      console.error("Google sync error", e);
-      const msg = e instanceof Error ? e.message : 'Erro ao sincronizar com Google.';
-      triggerNotification(msg.substring(0, 80), 'critical');
+      if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
+        console.log("Sincronização cancelada pelo usuário.");
+      } else {
+        console.error("Google sync error", e);
+        if (!silent) {
+          const msg = e instanceof Error ? e.message : 'Erro ao sincronizar com Google.';
+          triggerNotification(msg.substring(0, 80), 'critical');
+        }
+      }
     } finally {
-      setIsSyncingGoogle(false);
+      if (!silent) setIsSyncingGoogle(false);
     }
   };
 
@@ -2732,10 +3325,10 @@ export default function App() {
         let parsedOccurrences = [];
         let parsedEvents = [];
         let parsedActivities = [];
-        try { if(data.classesStr) parsedClasses = JSON.parse(data.classesStr); } catch(e) {}
-        try { if(data.occurrencesStr) parsedOccurrences = JSON.parse(data.occurrencesStr); } catch(e) {}
-        try { if (data.googleCalendarEventsStr) parsedEvents = JSON.parse(data.googleCalendarEventsStr); } catch(e) {}
-        try { if (data.googleClassroomActivitiesStr) parsedActivities = JSON.parse(data.googleClassroomActivitiesStr); } catch(e) {}
+        try { if(data.classesStr) parsedClasses = JSON.parse(data.classesStr) || []; } catch(e) {}
+        try { if(data.occurrencesStr) parsedOccurrences = JSON.parse(data.occurrencesStr) || []; } catch(e) {}
+        try { if (data.googleCalendarEventsStr) parsedEvents = JSON.parse(data.googleCalendarEventsStr) || []; } catch(e) {}
+        try { if (data.googleClassroomActivitiesStr) parsedActivities = JSON.parse(data.googleClassroomActivitiesStr) || []; } catch(e) {}
         const remoteApp: AppState = {
           schoolName: data.schoolName,
           teacherName: data.teacherName,
@@ -2752,6 +3345,9 @@ export default function App() {
         };
         setAppData(remoteApp);
         localStorage.setItem('horizonte_data', JSON.stringify(remoteApp));
+      } else if (!docSnap.exists()) {
+        // Se usuário logou mas não tem doc, precisamos lidar com fallback.
+        // Se não tiver local storage (appData null), mostra erro de conta não encontrada.
       }
     }, (error) => {
       console.error("Firestore real-time listener error:", error);
@@ -2791,12 +3387,15 @@ export default function App() {
       case 'reports': return 'Relatórios';
       case 'occurrence': return 'Nova Ocorrência';
       case 'settings': return 'Configurações';
+      case 'classes': return 'Turmas e Alunos';
+      case 'director': return 'Sala da Diretora';
+      case 'materials': return 'Preparar Materiais';
       default: return appData?.schoolName || 'Horizonte';
     }
   };
 
   // Build a flat list of all students for the screens to use
-  const allStudents = appData ? appData.classes.flatMap(c => c.students) : [];
+  const allStudents = appData ? (appData.classes || []).flatMap(c => c.students) : [];
 
   const renderScreen = () => {
     switch(activeScreen) {
@@ -2849,6 +3448,12 @@ export default function App() {
               ...prev,
               googleCalendarEvents: [...(prev.googleCalendarEvents || []), newEvent].sort((a,b) => (a.start || "").localeCompare(b.start || ""))
             }));
+            if (navigator.onLine && localStorage.getItem('google_access_token')) {
+              // trigger a silent sync slightly after state update
+              setTimeout(() => {
+                executeGoogleSync(true);
+              }, 1000);
+            }
           }}
         />
       );
@@ -2899,6 +3504,50 @@ export default function App() {
           currentViewRole={currentViewRole}
         />
       );
+      case 'classes': return (
+        <ClassesScreen 
+          appData={appData!} 
+          onUpdateClasses={(newClasses) => updateAppData(prev => ({ ...prev, classes: newClasses }))}
+        />
+      );
+      case 'materials': return (
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+          <motion.div 
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-32 h-32 bg-secondary/10 rounded-full flex items-center justify-center"
+          >
+            <Book className="w-16 h-16 text-secondary" />
+          </motion.div>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Preparação de Materiais</h2>
+          <p className="text-slate-500 max-w-sm">Esta área centralizará apostilas, vídeos educativos e simulados para os alunos.</p>
+          <div className="grid grid-cols-1 gap-4 w-full mt-8 text-left max-w-xs mx-auto">
+             <button className="bg-slate-50 border-2 border-dashed border-slate-200 p-4 rounded-xl text-center text-slate-500 hover:bg-slate-100 transition-colors">
+               <Upload className="w-6 h-6 mx-auto mb-2 text-slate-400" />
+               <span className="text-sm font-bold">Fazer Upload (Em breve)</span>
+             </button>
+             <button className="bg-blue-50/50 border-2 border-blue-100 p-4 rounded-xl text-center text-blue-600 hover:bg-blue-50 transition-colors">
+               <Sparkles className="w-6 h-6 mx-auto mb-2 text-blue-500" />
+               <span className="text-sm font-bold">Gerar com IA (Em breve)</span>
+             </button>
+          </div>
+          <button onClick={() => setActiveScreen('dashboard')} className="mt-8 bg-secondary text-white px-8 py-3 rounded-xl font-bold hover:bg-secondary/90 transition-colors">Voltar ao Início</button>
+        </div>
+      );
+      case 'director': return (
+        <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
+          <motion.div 
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-32 h-32 bg-primary/10 rounded-full flex items-center justify-center"
+          >
+            <UserCheck className="w-16 h-16 text-primary" />
+          </motion.div>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Sala da Diretora</h2>
+          <p className="text-slate-500 max-w-sm">Esta área está em desenvolvimento. Em breve você terá acesso a relatórios gerenciais e controle institucional.</p>
+          <button onClick={() => setActiveScreen('dashboard')} className="mt-8 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-primary/90 transition-colors">Voltar ao Início</button>
+        </div>
+      );
       case 'settings': return <SettingsScreen 
         appData={appData!} 
         onUpdateField={(field, value) => updateAppData(prev => ({ ...prev, [field]: value }))} 
@@ -2914,8 +3563,39 @@ export default function App() {
     if (authMode === 'register') {
       return <RegistrationScreen onComplete={handleRegistrationComplete} onSwitchToLogin={() => setAuthMode('login')} />;
     } else {
-      return <LoginScreen appData={appData} onLogin={() => setIsLogged(true)} onSwitchToRegister={() => setAuthMode('register')} />;
+      return (
+        <LoginScreen 
+          appData={appData} 
+          onLogin={() => setIsLogged(true)} 
+          onSwitchToRegister={() => setAuthMode('register')} 
+          onWipeData={() => {
+            localStorage.removeItem('horizonte_data');
+            localStorage.removeItem('google_access_token');
+            setAppData(null);
+            auth.signOut();
+            dexieDb.delete().then(() => {
+                setAuthMode('register');
+                window.location.reload(); 
+            });
+          }}
+        />
+      );
     }
+  }
+
+  if (!appData) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#faf8ff] dark:bg-slate-900">
+        <RefreshCw className="w-8 h-8 text-primary animate-spin mb-4" />
+        <p className="text-slate-500 font-bold font-manrope">Carregando dados...</p>
+        <button 
+           onClick={() => { setIsLogged(false); auth.signOut(); }}
+           className="mt-6 text-xs text-primary underline"
+        >
+          Voltar para o login
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -2939,12 +3619,13 @@ export default function App() {
       <Header 
         title={getScreenTitle()} 
         avatarUrl={appData?.avatarUrl}
-        showBack={activeScreen === 'occurrence' || activeScreen === 'settings'}
+        showBack={activeScreen === 'occurrence' || activeScreen === 'settings' || activeScreen === 'classes' || activeScreen === 'director' || activeScreen === 'materials'}
         onBack={() => {
           if (activeScreen === 'occurrence') setActiveScreen('attendance');
           else setActiveScreen('dashboard');
         }}
         onSettings={activeScreen !== 'settings' ? () => setActiveScreen('settings') : undefined}
+        onNavigateDirector={() => setActiveScreen('director')}
       />
       
       <main className="pt-24 px-6 max-w-4xl mx-auto pb-6">

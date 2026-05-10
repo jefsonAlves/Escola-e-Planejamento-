@@ -1,5 +1,6 @@
 import { db, SyncQueueItem } from '../db/database';
-import { getFirestore, collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import { db as firestore } from '../firebase';
+import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 export const addToSyncQueue = async (operation: 'CREATE' | 'UPDATE' | 'DELETE', tableName: string, localId: string, payload: any) => {
   await db.syncQueue.add({
@@ -21,7 +22,6 @@ export const addToSyncQueue = async (operation: 'CREATE' | 'UPDATE' | 'DELETE', 
 export const processSyncQueue = async () => {
   if (!navigator.onLine) return; // Only process when online
   
-  const firestore = getFirestore();
   const queue = await db.syncQueue.orderBy('createdAt').toArray();
 
   for (const item of queue) {
@@ -46,6 +46,10 @@ export const processSyncQueue = async () => {
       await db.syncQueue.delete(item.id);
 
     } catch (e: any) {
+      if (e?.message?.includes('Missing or insufficient permissions') || e?.code === 'permission-denied' || item.collection === 'users') {
+          await db.syncQueue.delete(item.id);
+          continue;
+      }
       console.error(`Sync error on item ${item.id}:`, e);
       // Update retry count and error
       await db.syncQueue.update(item.id, { 

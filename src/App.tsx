@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db, messaging } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
@@ -1053,7 +1053,6 @@ const QuickGradeDialog = ({
 };
 
 const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotification, onSyncGoogle, isSyncingGoogle, onUpdateActivities, onUpdateClasses }: { onNavigate: (screen: Screen) => void, onNewOccurrence: () => void, appData: AppState, onShowNotification: (msg: string) => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean, onUpdateActivities?: (activities: GoogleCourseWork[]) => void, onUpdateClasses?: (classes: ClassData[]) => void }) => {
-  const [showGradeDialog, setShowGradeDialog] = useState(false);
   const allStudents = (appData.classes || []).flatMap(c => c.students) || [];
   const totalStudents = allStudents.length;
   
@@ -1084,16 +1083,6 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
   return (
     <div className="space-y-6 pb-24">
       
-      {showGradeDialog && (
-        <QuickGradeDialog 
-          isOpen={showGradeDialog}
-          onClose={() => setShowGradeDialog(false)}
-          appData={appData}
-          onShowNotification={onShowNotification}
-          onUpdateClasses={onUpdateClasses}
-        />
-      )}
-
       <GoogleIntegrationBlocks appData={appData} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onShowNotification={onShowNotification} onUpdateActivities={onUpdateActivities} />
 
       {/* Quick Actions (Ações Rápidas) */}
@@ -3520,6 +3509,7 @@ export default function App() {
   const [notification, setNotification] = useState<{message: string, type: 'critical' | 'info'} | null>(null);
   const [showSyncConsent, setShowSyncConsent] = useState(false);
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
+  const [showGradeDialog, setShowGradeDialog] = useState(false);
   const [currentViewRole, setCurrentViewRole] = useState<'teacher' | 'student'>('teacher');
   const [accessToken, setAccessToken] = useState<string | null>(localStorage.getItem('google_access_token'));
 
@@ -4401,6 +4391,16 @@ export default function App() {
 
       {activeScreen !== 'occurrence' && (
         <BottomNav active={activeScreen} onChange={setActiveScreen} role={currentViewRole} />
+      )}
+
+      {showGradeDialog && (
+        <QuickGradeDialog 
+          isOpen={showGradeDialog}
+          onClose={() => setShowGradeDialog(false)}
+          appData={appData!}
+          onShowNotification={(msg) => triggerNotification(msg, 'info')}
+          onUpdateClasses={(classes) => updateAppData(prev => ({ ...prev, classes }))}
+        />
       )}
 
       {/* Sync Consent Modal */}

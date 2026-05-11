@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db, messaging } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
@@ -12,6 +12,7 @@ import { doc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { getToken, onMessage } from 'firebase/messaging';
 
 import { Capacitor } from '@capacitor/core';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
 // --- Types ---
 declare global {
@@ -20,7 +21,7 @@ declare global {
   }
 }
 
-type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'boletim' | 'occurrence' | 'settings' | 'classes' | 'director' | 'materials';
+type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'boletim' | 'occurrence' | 'settings' | 'classes' | 'director' | 'materials' | 'studentsHub';
 
 interface StudentEvaluation {
   id: string;
@@ -103,13 +104,13 @@ const Header = ({ title, showBack, onBack, onSettings, avatarUrl, onNavigateDire
 const BottomNav = ({ active, onChange, role }: { active: Screen; onChange: (s: Screen) => void; role?: 'teacher' | 'student' | 'both' }) => {
   let items: { id: Screen; label: string; icon: any }[] = [
     { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
-    { id: 'attendance', label: 'Presença', icon: UserCheck },
+    { id: 'studentsHub', label: 'Alunos', icon: Users },
     { id: 'agenda', label: 'Agenda', icon: Calendar },
     { id: 'reports', label: 'Relatórios', icon: FileText },
   ];
 
   if (role === 'student') {
-    items = items.filter(item => item.id !== 'attendance');
+    items = items.filter(item => item.id !== 'studentsHub');
   }
 
   const handlePress = (id: Screen) => {
@@ -120,7 +121,7 @@ const BottomNav = ({ active, onChange, role }: { active: Screen; onChange: (s: S
   return (
     <nav className="fixed bottom-0 left-0 w-full z-50 glass-card border-t border-white/30 dark:border-slate-700/50 pb-safe px-6 py-2 flex justify-around items-center rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.05)] dark:shadow-[0_-10px_40px_rgba(0,0,0,0.2)] bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl">
       {items.map((item) => {
-        const isActive = active === item.id || (active === 'occurrence' && item.id === 'attendance');
+        const isActive = active === item.id || (active === 'attendance' && item.id === 'studentsHub') || (active === 'occurrence' && item.id === 'studentsHub') || (active === 'boletim' && item.id === 'studentsHub');
         return (
           <button
             key={item.id}
@@ -233,6 +234,10 @@ interface Occurrence {
   status: 'praise' | 'attention' | 'critical';
   tags: string[];
   notes: string;
+  justification?: string;
+  attachmentUrl?: string; // Base64 or Blob URL for attachment
+  meetingReminderDate?: string;
+  meetingReminderTime?: string;
 }
 
 // --- Screen Components ---
@@ -1092,30 +1097,22 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
       <GoogleIntegrationBlocks appData={appData} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onShowNotification={onShowNotification} onUpdateActivities={onUpdateActivities} />
 
       {/* Quick Actions (Ações Rápidas) */}
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <section className="grid grid-cols-2 gap-3">
         <motion.button 
           whileTap={{ scale: 0.95 }}
-          onClick={onNewOccurrence}
+          onClick={() => onNavigate('studentsHub')}
           className="glass-card p-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
         >
-          <AlertOctagon className="w-5 h-5 text-red-500" />
-          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Ocorrência</span>
+          <Users className="w-5 h-5 text-blue-500" />
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Central do Aluno</span>
         </motion.button>
         <motion.button 
           whileTap={{ scale: 0.95 }}
-          onClick={() => setShowGradeDialog(true)}
+          onClick={() => onNavigate('classes')}
           className="glass-card p-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
         >
-          <Award className="w-5 h-5 text-amber-500" />
-          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Lançar Notas</span>
-        </motion.button>
-        <motion.button 
-          whileTap={{ scale: 0.95 }}
-          onClick={() => onNavigate('boletim')}
-          className="glass-card p-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
-        >
-          <FileText className="w-5 h-5 text-blue-500" />
-          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Boletim</span>
+          <GraduationCap className="w-5 h-5 text-emerald-500" />
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Turmas</span>
         </motion.button>
       </section>
 
@@ -1276,6 +1273,49 @@ const DashboardScreen = ({ onNavigate, onNewOccurrence, appData, onShowNotificat
       ) : (
         <TeacherDashboard onNavigate={onNavigate} onNewOccurrence={onNewOccurrence} appData={appData} onShowNotification={onShowNotification} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onUpdateActivities={onUpdateActivities} onUpdateClasses={onUpdateClasses} />
       )}
+    </div>
+  );
+};
+
+const StudentsHubScreen = ({ onNavigate, onOpenGrades }: { onNavigate: (screen: Screen) => void, onOpenGrades: () => void }) => {
+  const actions = [
+    { id: 'attendance', label: 'Frequência', icon: UserCheck, color: 'text-primary', bg: 'bg-primary/10', border: 'border-primary/20' },
+    { id: 'boletim', label: 'Boletim', icon: FileText, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+    { id: 'grades', label: 'Lançar Notas', icon: Award, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/20', action: onOpenGrades },
+    { id: 'reports', label: 'Relatórios', icon: LayoutDashboard, color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+    { id: 'occurrence', label: 'Advertência', icon: AlertOctagon, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' }
+  ];
+
+  return (
+    <div className="space-y-8 pb-24">
+      <div className="flex justify-between items-end mb-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Central do Aluno</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 font-manrope font-medium">Acesse as ferramentas focadas no aluno.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+        {actions.map((act) => (
+          <motion.button
+            key={act.id}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              if (act.action) {
+                act.action();
+              } else {
+                onNavigate(act.id as Screen);
+              }
+            }}
+            className="flex flex-col items-center justify-center p-6 glass-card rounded-[2rem] hover:bg-white/40 dark:hover:bg-slate-800/40 transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700 shadow-sm hover:shadow-md gap-4"
+          >
+            <div className={`w-20 h-20 rounded-full ${act.bg} ${act.border} border-2 flex items-center justify-center`}>
+              <act.icon className={`w-10 h-10 ${act.color}`} strokeWidth={2.5} />
+            </div>
+            <span className="font-bold text-slate-700 dark:text-slate-200 text-sm tracking-wide text-center">{act.label}</span>
+          </motion.button>
+        ))}
+      </div>
     </div>
   );
 };
@@ -1441,13 +1481,30 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
 };
 
 const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?: Student, occurrences: Occurrence[], onSave: (occ: Omit<Occurrence, 'id'>) => void, onCancel: () => void }) => {
-  const [tab, setTab] = useState<'new' | 'history'>('new');
+  const [tab, setTab] = useState<'new' | 'history' | 'charts'>('new');
   const [activeStatus, setActiveStatus] = useState<'praise' | 'attention' | 'critical'>('attention');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
+  const [justification, setJustification] = useState('');
+  const [meetingDate, setMeetingDate] = useState('');
+  const [meetingTime, setMeetingTime] = useState('');
+  const [attachmentUrl, setAttachmentUrl] = useState<string | undefined>(undefined);
   const [historyFilter, setHistoryFilter] = useState<'all' | 'praise' | 'attention' | 'critical'>('all');
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const tagsList = ['Falta de Material', 'Conversa Paralela', 'Desempenho Extraordinário', 'Conflito entre Pares', 'Uso de Celular'];
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAttachmentUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const toggleTag = (tag: string) => {
     if (selectedTags.includes(tag)) {
@@ -1464,7 +1521,11 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?
       date: new Date().toISOString(),
       status: activeStatus,
       tags: selectedTags,
-      notes
+      notes,
+      justification,
+      meetingReminderDate: meetingDate,
+      meetingReminderTime: meetingTime,
+      attachmentUrl
     });
   };
   
@@ -1498,6 +1559,12 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?
           className={`flex-1 py-2 text-xs font-bold tracking-widest uppercase rounded-lg transition-all ${tab === 'history' ? 'bg-white dark:bg-slate-800 text-primary shadow-sm' : 'text-slate-400'}`}
         >
           Histórico
+        </button>
+        <button 
+          onClick={() => setTab('charts')}
+          className={`flex-1 py-2 text-xs font-bold tracking-widest uppercase rounded-lg transition-all ${tab === 'charts' ? 'bg-white dark:bg-slate-800 text-primary shadow-sm' : 'text-slate-400'}`}
+        >
+          Desempenho
         </button>
       </div>
 
@@ -1550,7 +1617,7 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?
             <textarea 
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Observações adicionais (opcional)..." 
+              placeholder="Observações adicionais / Justificativa detalhada do professor..." 
               className="w-full bg-transparent border-0 border-b border-slate-200 dark:border-slate-700 focus:border-primary focus:ring-0 p-0 py-4 text-sm resize-none font-manrope"
               rows={3}
             />
@@ -1559,17 +1626,53 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?
           {/* Evidence */}
           <section className="space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-xs font-extrabold text-primary uppercase tracking-widest ml-1">Portfólio de Evidência</h3>
-              <span className="text-[11px] text-slate-400 italic">Dica: Toque para anexar</span>
+              <h3 className="text-xs font-extrabold text-primary uppercase tracking-widest ml-1">Anexos e Evidências</h3>
             </div>
+            
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="glass-card rounded-2xl border-dashed border-2 border-slate-200 dark:border-slate-700 h-32 flex flex-col items-center justify-center gap-2 group cursor-pointer hover:bg-white/40 dark:hover:bg-slate-800/40 active:scale-95 transition-all overflow-hidden relative"
+            >
+              {attachmentUrl ? (
+                <div className="absolute inset-0 w-full h-full">
+                  <img src={attachmentUrl} alt="Evidência" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2"><UploadCloud className="w-4 h-4"/> Trocar</span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <UploadCloud className="w-8 h-8 text-slate-300 group-hover:text-primary transition-colors" />
+                  <span className="text-xs font-bold text-slate-400 group-hover:text-primary uppercase tracking-widest">Toque para Anexar Foto ou Arquivo</span>
+                </>
+              )}
+            </div>
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={handleFileUpload} />
+          </section>
+
+          {/* Meeting Reminder */}
+          <section className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+            <h3 className="text-xs font-extrabold text-primary uppercase tracking-widest ml-1 flex items-center gap-2">
+              <Calendar className="w-4 h-4" /> Agendar Reunião com Responsável
+            </h3>
             <div className="grid grid-cols-2 gap-4">
-              <div className="glass-card rounded-2xl border-dashed border-2 border-slate-200 dark:border-slate-700 h-32 flex flex-col items-center justify-center gap-2 group cursor-pointer hover:bg-white/40 dark:bg-slate-800/40 active:scale-95 transition-all">
-                <Camera className="w-8 h-8 text-slate-300 group-hover:text-primary transition-colors" />
-                <span className="text-xs font-bold text-slate-300 group-hover:text-primary uppercase tracking-widest">Foto</span>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Data</label>
+                <input 
+                  type="date" 
+                  value={meetingDate} 
+                  onChange={e => setMeetingDate(e.target.value)} 
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold text-slate-700 dark:text-slate-200"
+                />
               </div>
-              <div className="glass-card rounded-2xl border-dashed border-2 border-slate-200 dark:border-slate-700 h-32 flex flex-col items-center justify-center gap-2 group cursor-pointer hover:bg-white/40 dark:bg-slate-800/40 active:scale-95 transition-all">
-                <Mic className="w-8 h-8 text-slate-300 group-hover:text-primary transition-colors" />
-                <span className="text-xs font-bold text-slate-300 group-hover:text-primary uppercase tracking-widest">Áudio</span>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Hora</label>
+                <input 
+                  type="time" 
+                  value={meetingTime} 
+                  onChange={e => setMeetingTime(e.target.value)} 
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold text-slate-700 dark:text-slate-200"
+                />
               </div>
             </div>
           </section>
@@ -1617,10 +1720,78 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?
                     {occ.notes && (
                       <p className="text-sm font-manrope text-slate-600 mt-2 bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg">{occ.notes}</p>
                     )}
+                    {occ.justification && (
+                      <p className="text-xs font-manrope text-slate-500 mt-2 italic border-l-2 border-slate-200 dark:border-slate-700 pl-2">Justificativa: {occ.justification}</p>
+                    )}
+                    {occ.attachmentUrl && (
+                      <div className="mt-2 rounded-lg overflow-hidden max-h-32">
+                        <img src={occ.attachmentUrl} alt="Anexo" className="w-full object-cover" />
+                      </div>
+                    )}
+                    {(occ.meetingReminderDate || occ.meetingReminderTime) && (
+                      <div className="mt-2 text-xs font-bold text-primary flex items-center gap-1 bg-primary/10 w-fit px-2 py-1 rounded">
+                        <Calendar className="w-3 h-3" />
+                        Reunião: {occ.meetingReminderDate} às {occ.meetingReminderTime}
+                      </div>
+                    )}
                  </div>
               ))}
             </div>
           )}
+        </motion.div>
+      )}
+
+      {tab === 'charts' && (
+        <motion.div initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} className="space-y-4 pt-2 pb-12">
+          <div className="glass-card p-4 rounded-2xl">
+            <h3 className="text-xs font-extrabold text-primary uppercase tracking-widest ml-1 flex items-center gap-2 mb-4">
+              <Sparkles className="w-4 h-4" /> Evolução de Notas
+            </h3>
+            {student?.evaluations && student.evaluations.length > 0 ? (
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={
+                    [...student.evaluations].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()).map(ev => ({
+                      name: ev.method.substring(0, 10),
+                      nota: ev.points,
+                      bimester: ev.bimester
+                    }))
+                  }>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                    <XAxis dataKey="name" tick={{fontSize: 10}} tickMargin={10} stroke="#94a3b8" />
+                    <YAxis tick={{fontSize: 10}} stroke="#94a3b8" domain={[0, 'dataMax']} />
+                    <RechartsTooltip 
+                      contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'}}
+                      labelStyle={{fontWeight: 'bold', color: '#1e293b'}}
+                    />
+                    <Line type="monotone" dataKey="nota" stroke="#3b82f6" strokeWidth={3} dot={{r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff'}} activeDot={{r: 6}} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-slate-400 font-manrope text-sm bg-white/40 dark:bg-slate-800/40 rounded-2xl border border-white/40 dark:border-slate-700/50">
+                Nenhuma nota lançada para criar o gráfico.
+              </div>
+            )}
+          </div>
+          
+          <div className="glass-card p-4 rounded-2xl">
+             <h3 className="text-xs font-extrabold text-primary uppercase tracking-widest ml-1 mb-4">Estatísticas</h3>
+             <div className="grid grid-cols-2 gap-4">
+                 <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                   <p className="text-[10px] text-slate-500 font-bold uppercase">Média Geral</p>
+                   <p className="text-2xl font-extrabold text-primary">
+                     {student?.evaluations?.length ? (student.evaluations.reduce((acc, curr) => acc + curr.points, 0) / student.evaluations.length).toFixed(1) : '0.0'}
+                   </p>
+                 </div>
+                 <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                   <p className="text-[10px] text-slate-500 font-bold uppercase">Total Ocorrências</p>
+                   <p className="text-2xl font-extrabold text-amber-500">
+                     {occurrences.length}
+                   </p>
+                 </div>
+             </div>
+          </div>
         </motion.div>
       )}
 
@@ -3931,6 +4102,7 @@ export default function App() {
   const getScreenTitle = () => {
     switch(activeScreen) {
       case 'dashboard': return 'Início';
+      case 'studentsHub': return 'Alunos';
       case 'attendance': return 'Frequência';
       case 'agenda': return 'Agenda';
       case 'reports': return 'Relatórios';
@@ -3967,10 +4139,16 @@ export default function App() {
           }}
         />
       );
+      case 'studentsHub': return (
+        <StudentsHubScreen 
+          onNavigate={(s) => setActiveScreen(s)}
+          onOpenGrades={() => setShowGradeDialog(true)}
+        />
+      );
       case 'attendance': return (
         <AttendanceScreen 
           classes={appData?.classes || []} 
-          onFinish={() => setActiveScreen('dashboard')} 
+          onFinish={() => setActiveScreen('studentsHub')} 
           onSelectStudent={(id) => { setSelectedStudentId(id); setActiveScreen('occurrence'); }}
           onUpdateStatus={(classId, studentId, date, status) => {
             updateAppData(prev => ({
@@ -4042,11 +4220,37 @@ export default function App() {
                } else {
                  setTimeout(() => triggerNotification(`Ocorrência registrada com sucesso.`, 'info'), 10);
                }
-               return { ...prev, occurrences: [...prev.occurrences, newOcc] };
+
+               let updatedEvents = prev.googleCalendarEvents || [];
+               if (newOcc.meetingReminderDate && newOcc.meetingReminderTime) {
+                 const meetingDate = new Date(newOcc.meetingReminderDate);
+                 const monthNames = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+                 const newEvent = {
+                   id: 'meeting-' + Date.now().toString(),
+                   title: `Reunião c/ responsável de ${student?.name}`,
+                   month: monthNames[meetingDate.getMonth()],
+                   day: meetingDate.getDate().toString(),
+                   time: newOcc.meetingReminderTime,
+                   start: newOcc.meetingReminderTime,
+                   dateIso: newOcc.meetingReminderDate,
+                   isCustom: true,
+                   syncedToGoogle: false
+                 };
+                 updatedEvents = [...updatedEvents, newEvent];
+                 
+                 // Se o token existir, tenta sincronizar depois
+                 if (localStorage.getItem('google_access_token')) {
+                   setTimeout(() => {
+                     executeGoogleSync(true);
+                   }, 2000);
+                 }
+               }
+
+               return { ...prev, occurrences: [...prev.occurrences, newOcc], googleCalendarEvents: updatedEvents };
              });
-             setActiveScreen('attendance');
+             setActiveScreen('studentsHub');
           }}
-          onCancel={() => setActiveScreen('attendance')} 
+          onCancel={() => setActiveScreen('studentsHub')} 
         />
       );
       case 'reports':
@@ -4156,9 +4360,9 @@ export default function App() {
       <Header 
         title={getScreenTitle()} 
         avatarUrl={appData?.avatarUrl}
-        showBack={activeScreen === 'occurrence' || activeScreen === 'settings' || activeScreen === 'classes' || activeScreen === 'director' || activeScreen === 'materials'}
+        showBack={activeScreen === 'occurrence' || activeScreen === 'settings' || activeScreen === 'classes' || activeScreen === 'director' || activeScreen === 'materials' || activeScreen === 'boletim' || activeScreen === 'attendance'}
         onBack={() => {
-          if (activeScreen === 'occurrence') setActiveScreen('attendance');
+          if (activeScreen === 'occurrence' || activeScreen === 'attendance' || activeScreen === 'boletim') setActiveScreen('studentsHub');
           else setActiveScreen('dashboard');
         }}
         onSettings={activeScreen !== 'settings' ? () => setActiveScreen('settings') : undefined}

@@ -20,7 +20,7 @@ declare global {
   }
 }
 
-type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'occurrence' | 'settings' | 'classes' | 'director' | 'materials';
+type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'boletim' | 'occurrence' | 'settings' | 'classes' | 'director' | 'materials';
 
 interface StudentEvaluation {
   id: string;
@@ -1007,15 +1007,26 @@ const QuickGradeDialog = ({
               <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-2 block">Notas dos Alunos (vazio p/ ignorar)</label>
               <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-2 pb-2">
                 {students.map(student => (
-                  <div key={student.id} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-200 dark:border-slate-700/50">
-                    <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate pr-2 flex-1">{student.name}</span>
-                    <input 
-                      type="number" 
-                      placeholder="0.0" 
-                      value={pointsMap[student.id] || ''} 
-                      onChange={e => setPointsMap({...pointsMap, [student.id]: e.target.value})}
-                      className="w-20 text-center font-mono font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:border-primary" 
-                    />
+                  <div key={student.id} className="flex flex-col bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50">
+                    <div className="flex justify-between items-center w-full">
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate pr-2 flex-1">{student.name}</span>
+                      <input 
+                        type="number" 
+                        placeholder="0.0" 
+                        value={pointsMap[student.id] || ''} 
+                        onChange={e => setPointsMap({...pointsMap, [student.id]: e.target.value})}
+                        className="w-20 text-center font-mono font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:border-primary shrink-0" 
+                      />
+                    </div>
+                    {student.evaluations && student.evaluations.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700/50 text-xs flex flex-wrap gap-1">
+                        {student.evaluations.map(ev => (
+                           <span key={ev.id} className="bg-primary/5 border border-primary/10 text-primary px-2 py-0.5 rounded font-medium max-w-full truncate">
+                             {ev.bimester.split(' ')[0]} - {ev.method}: <span className="font-bold">{ev.points} pts</span>
+                           </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
                 {students.length === 0 && (
@@ -1081,7 +1092,7 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
       <GoogleIntegrationBlocks appData={appData} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onShowNotification={onShowNotification} onUpdateActivities={onUpdateActivities} />
 
       {/* Quick Actions (Ações Rápidas) */}
-      <section className="grid grid-cols-2 gap-3">
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <motion.button 
           whileTap={{ scale: 0.95 }}
           onClick={onNewOccurrence}
@@ -1097,6 +1108,14 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
         >
           <Award className="w-5 h-5 text-amber-500" />
           <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Lançar Notas</span>
+        </motion.button>
+        <motion.button 
+          whileTap={{ scale: 0.95 }}
+          onClick={() => onNavigate('boletim')}
+          className="glass-card p-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
+        >
+          <FileText className="w-5 h-5 text-blue-500" />
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Boletim</span>
         </motion.button>
       </section>
 
@@ -2092,9 +2111,9 @@ const MaterialsScreen = ({ appData, onUpdateMaterials }: { appData: AppState, on
   );
 };
 
-const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentViewRole }: { appData: AppState, onUpdateClasses: (classes: ClassData[]) => void, onShowNotification: (msg: string) => void, currentViewRole: 'teacher' | 'student' }) => {
+const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentViewRole, initialModule }: { appData: AppState, onUpdateClasses: (classes: ClassData[]) => void, onShowNotification: (msg: string) => void, currentViewRole: 'teacher' | 'student', initialModule?: string }) => {
   const isStudent = currentViewRole === 'student';
-  const [activeModule, setActiveModule] = useState<string | null>(null);
+  const [activeModule, setActiveModule] = useState<string | null>(initialModule || null);
   const [activeClassId, setActiveClassId] = useState<string | null>(null);
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
   
@@ -3915,6 +3934,7 @@ export default function App() {
       case 'attendance': return 'Frequência';
       case 'agenda': return 'Agenda';
       case 'reports': return 'Relatórios';
+      case 'boletim': return 'Boletim';
       case 'occurrence': return 'Nova Ocorrência';
       case 'settings': return 'Configurações';
       case 'classes': return 'Turmas e Alunos';
@@ -4029,12 +4049,14 @@ export default function App() {
           onCancel={() => setActiveScreen('attendance')} 
         />
       );
-      case 'reports': return (
+      case 'reports':
+      case 'boletim': return (
         <ReportsScreen 
           appData={appData!} 
           onUpdateClasses={(newClasses) => updateAppData(prev => ({ ...prev, classes: newClasses }))}
           onShowNotification={(msg) => triggerNotification(msg, 'info')}
           currentViewRole={currentViewRole}
+          initialModule={activeScreen === 'boletim' ? 'evaluations' : undefined}
         />
       );
       case 'classes': return (

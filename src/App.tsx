@@ -831,7 +831,197 @@ const GoogleIntegrationBlocks = ({ appData, onSyncGoogle, isSyncingGoogle, onSho
   );
 };
 
-const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotification, onSyncGoogle, isSyncingGoogle, onUpdateActivities }: { onNavigate: (screen: Screen) => void, onNewOccurrence: () => void, appData: AppState, onShowNotification: (msg: string) => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean, onUpdateActivities?: (activities: GoogleCourseWork[]) => void }) => {
+const QuickGradeDialog = ({ 
+  isOpen, 
+  onClose, 
+  appData, 
+  onShowNotification, 
+  onUpdateClasses 
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  appData: AppState, 
+  onShowNotification: (msg: string) => void,
+  onUpdateClasses?: (classes: ClassData[]) => void
+}) => {
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [selectedActivity, setSelectedActivity] = useState<string>('');
+  const [evalBimester, setEvalBimester] = useState('1º Bimestre');
+  const [pointsMap, setPointsMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (isOpen) {
+      const classes = appData.classes || [];
+      if (classes.length > 0 && !selectedClassId) {
+        setSelectedClassId(classes[0].id);
+      }
+    }
+  }, [isOpen, appData.classes, selectedClassId]);
+
+  useEffect(() => {
+    // Populate points map when activity or class changes
+    const classes = appData.classes || [];
+    const activeClass = classes.find(c => c.id === selectedClassId);
+    const students = activeClass?.students || [];
+    const newPointsMap: Record<string, string> = {};
+    
+    if (selectedActivity.trim()) {
+      students.forEach(student => {
+        const existingEval = student.evaluations?.find(e => e.method === selectedActivity.trim() && e.bimester === evalBimester);
+        if (existingEval) {
+          newPointsMap[student.id] = String(existingEval.points);
+        }
+      });
+    }
+    setPointsMap(newPointsMap);
+  }, [selectedClassId, selectedActivity, evalBimester, appData.classes]);
+
+  if (!isOpen) return null;
+
+  const classes = appData.classes || [];
+  const activeClass = classes.find(c => c.id === selectedClassId);
+  const students = activeClass?.students || [];
+
+  const handleApplyGrades = () => {
+    if (!activeClass || !selectedActivity.trim() || !onUpdateClasses) {
+      onShowNotification("Preencha a atividade e selecione uma turma.");
+      return;
+    }
+
+    let updatedCount = 0;
+    const newStudents = students.map(student => {
+      const pointsStr = pointsMap[student.id];
+      const activityName = selectedActivity.trim();
+      let newEvaluations = [...(student.evaluations || [])];
+      
+      const existingEvalIndex = newEvaluations.findIndex(e => e.method === activityName && e.bimester === evalBimester);
+
+      if (pointsStr !== undefined && pointsStr.trim() !== '') {
+        const points = Number(pointsStr);
+        if (!isNaN(points)) {
+          if (existingEvalIndex >= 0) {
+            if (newEvaluations[existingEvalIndex].points !== points) {
+              newEvaluations[existingEvalIndex] = { ...newEvaluations[existingEvalIndex], points };
+              updatedCount++;
+            }
+          } else {
+            newEvaluations.push({
+              id: crypto.randomUUID(),
+              method: activityName,
+              points,
+              date: new Date().toISOString(),
+              bimester: evalBimester
+            });
+            updatedCount++;
+          }
+        }
+      } else {
+        // If empty, remove it if it existed
+        if (existingEvalIndex >= 0) {
+          newEvaluations.splice(existingEvalIndex, 1);
+          updatedCount++;
+        }
+      }
+
+      return {
+        ...student,
+        evaluations: newEvaluations
+      };
+    });
+
+    if (updatedCount === 0) {
+      onShowNotification("Nenhuma alteração de nota.");
+      return;
+    }
+
+    const newClasses = classes.map(c => 
+      c.id === activeClass.id ? { ...c, students: newStudents } : c
+    );
+    
+    onUpdateClasses(newClasses);
+    onShowNotification(`${updatedCount} nota(s) atualizada(s) com sucesso!`);
+    onClose();
+  };
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[100] flex flex-col justify-end sm:justify-center items-center bg-black/60 backdrop-blur-sm p-4">
+        <motion.div 
+          initial={{ y: '100%' }}
+          animate={{ y: 0 }}
+          exit={{ y: '100%' }}
+          className="w-full max-w-md bg-white dark:bg-[#1a1b21] rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+        >
+          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+            <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <Award className="w-5 h-5 text-primary" /> Lançamento de Notas
+            </h3>
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="w-5 h-5 text-slate-500" />
+            </button>
+          </div>
+          
+          <div className="p-5 space-y-4 overflow-y-auto">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Turma</label>
+              <select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer">
+                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Bimestre</label>
+              <select value={evalBimester} onChange={e => setEvalBimester(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer transition-colors shadow-sm">
+                <option value="1º Bimestre">1º Bimestre</option>
+                <option value="2º Bimestre">2º Bimestre</option>
+                <option value="3º Bimestre">3º Bimestre</option>
+                <option value="4º Bimestre">4º Bimestre</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Atividade (Ex: Prova 1)</label>
+              <input list="quick-activities" type="text" value={selectedActivity} onChange={e => setSelectedActivity(e.target.value)} placeholder="Nome da atividade" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold transition-colors shadow-sm" />
+              <datalist id="quick-activities">
+                {appData.googleClassroomActivities?.map(a => <option key={a.id} value={a.title} />)}
+              </datalist>
+            </div>
+
+            <div className="mt-6 border-t border-slate-100 dark:border-slate-800 pt-4">
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1 mb-2 block">Notas dos Alunos (vazio p/ ignorar)</label>
+              <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-2 pb-2">
+                {students.map(student => (
+                  <div key={student.id} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-200 dark:border-slate-700/50">
+                    <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate pr-2 flex-1">{student.name}</span>
+                    <input 
+                      type="number" 
+                      placeholder="0.0" 
+                      value={pointsMap[student.id] || ''} 
+                      onChange={e => setPointsMap({...pointsMap, [student.id]: e.target.value})}
+                      className="w-20 text-center font-mono font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:border-primary" 
+                    />
+                  </div>
+                ))}
+                {students.length === 0 && (
+                  <p className="text-sm text-slate-500 text-center py-4">Nenhum aluno nesta turma.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 border-t border-slate-100 dark:border-slate-800">
+            <button onClick={handleApplyGrades} className="w-full primary-gradient text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-all text-sm uppercase tracking-widest">
+              Lançar Notas
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+};
+
+const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotification, onSyncGoogle, isSyncingGoogle, onUpdateActivities, onUpdateClasses }: { onNavigate: (screen: Screen) => void, onNewOccurrence: () => void, appData: AppState, onShowNotification: (msg: string) => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean, onUpdateActivities?: (activities: GoogleCourseWork[]) => void, onUpdateClasses?: (classes: ClassData[]) => void }) => {
+  const [showGradeDialog, setShowGradeDialog] = useState(false);
   const allStudents = (appData.classes || []).flatMap(c => c.students) || [];
   const totalStudents = allStudents.length;
   
@@ -862,7 +1052,37 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
   return (
     <div className="space-y-6 pb-24">
       
+      {showGradeDialog && (
+        <QuickGradeDialog 
+          isOpen={showGradeDialog}
+          onClose={() => setShowGradeDialog(false)}
+          appData={appData}
+          onShowNotification={onShowNotification}
+          onUpdateClasses={onUpdateClasses}
+        />
+      )}
+
       <GoogleIntegrationBlocks appData={appData} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onShowNotification={onShowNotification} onUpdateActivities={onUpdateActivities} />
+
+      {/* Quick Actions (Ações Rápidas) */}
+      <section className="grid grid-cols-2 gap-3">
+        <motion.button 
+          whileTap={{ scale: 0.95 }}
+          onClick={onNewOccurrence}
+          className="glass-card p-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
+        >
+          <AlertOctagon className="w-5 h-5 text-red-500" />
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Ocorrência</span>
+        </motion.button>
+        <motion.button 
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setShowGradeDialog(true)}
+          className="glass-card p-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
+        >
+          <Award className="w-5 h-5 text-amber-500" />
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Lançar Notas</span>
+        </motion.button>
+      </section>
 
       {/* Resumo Geral */}
       <section className="grid grid-cols-3 gap-3">
@@ -1013,13 +1233,13 @@ const StudentDashboard = ({ appData, onShowNotification, onSyncGoogle, isSyncing
   );
 };
 
-const DashboardScreen = ({ onNavigate, onNewOccurrence, appData, onShowNotification, onSyncGoogle, isSyncingGoogle, currentViewRole, onToggleViewRole, onUpdateActivities }: { onNavigate: (screen: Screen) => void, onNewOccurrence: () => void, appData: AppState, onShowNotification: (msg: string) => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean, currentViewRole: 'teacher' | 'student', onToggleViewRole: (r: 'teacher' | 'student') => void, onUpdateActivities?: (activities: GoogleCourseWork[]) => void }) => {
+const DashboardScreen = ({ onNavigate, onNewOccurrence, appData, onShowNotification, onSyncGoogle, isSyncingGoogle, currentViewRole, onToggleViewRole, onUpdateActivities, onUpdateClasses }: { onNavigate: (screen: Screen) => void, onNewOccurrence: () => void, appData: AppState, onShowNotification: (msg: string) => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean, currentViewRole: 'teacher' | 'student', onToggleViewRole: (r: 'teacher' | 'student') => void, onUpdateActivities?: (activities: GoogleCourseWork[]) => void, onUpdateClasses?: (classes: ClassData[]) => void }) => {
   return (
     <div className="space-y-6">
       {currentViewRole === 'student' ? (
         <StudentDashboard appData={appData} onShowNotification={onShowNotification} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onNavigate={onNavigate} onUpdateActivities={onUpdateActivities} />
       ) : (
-        <TeacherDashboard onNavigate={onNavigate} onNewOccurrence={onNewOccurrence} appData={appData} onShowNotification={onShowNotification} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onUpdateActivities={onUpdateActivities} />
+        <TeacherDashboard onNavigate={onNavigate} onNewOccurrence={onNewOccurrence} appData={appData} onShowNotification={onShowNotification} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onUpdateActivities={onUpdateActivities} onUpdateClasses={onUpdateClasses} />
       )}
     </div>
   );
@@ -1705,7 +1925,8 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
   const [diagText, setDiagText] = useState('');
 
   const [showEvalForm, setShowEvalForm] = useState(false);
-  const [evalMethodType, setEvalMethodType] = useState('Prova');
+  const [evalToDelete, setEvalToDelete] = useState<string | null>(null);
+  const [evalMethodType, setEvalMethodType] = useState('Prova Bimestral');
   const [evalMethod, setEvalMethod] = useState('');
   const [evalPoints, setEvalPoints] = useState<number | ''>('');
   const [evalBimester, setEvalBimester] = useState('1º Bimestre');
@@ -2071,27 +2292,39 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
                             {ev.points > 0 ? '+' : ''}{ev.points}
                           </div>
                           {!isStudent && (
-                            <button onClick={() => {
-                              if (window.confirm('Excluir esta avaliação?')) {
-                                const newClasses = (appData.classes || []).map(c => {
-                                  if (c.id === activeClass.id) {
-                                    return {
-                                      ...c,
-                                      students: c.students.map(s => {
-                                        if (s.id === activeStudent.id) {
-                                          return { ...s, evaluations: s.evaluations?.filter(e => e.id !== ev.id) };
+                            <div className="flex items-center gap-1">
+                              {evalToDelete === ev.id ? (
+                                <>
+                                  <button onClick={() => setEvalToDelete(null)} className="p-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-500">
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                  <button onClick={() => {
+                                      const newClasses = (appData.classes || []).map(c => {
+                                        if (c.id === activeClass.id) {
+                                          return {
+                                            ...c,
+                                            students: c.students.map(s => {
+                                              if (s.id === activeStudent.id) {
+                                                return { ...s, evaluations: s.evaluations?.filter(e => e.id !== ev.id) };
+                                              }
+                                              return s;
+                                            })
+                                          };
                                         }
-                                        return s;
-                                      })
-                                    };
-                                  }
-                                  return c;
-                                });
-                                onUpdateClasses(newClasses);
-                              }
-                            }} className="p-1.5 rounded bg-slate-200/50 dark:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors">
-                              <X className="w-4 h-4" />
-                            </button>
+                                        return c;
+                                      });
+                                      onUpdateClasses(newClasses);
+                                      setEvalToDelete(null);
+                                  }} className="p-1 px-2 text-[10px] uppercase font-bold rounded bg-red-500 text-white">
+                                    Sim
+                                  </button>
+                                </>
+                              ) : (
+                                <button onClick={() => setEvalToDelete(ev.id)} className="p-1.5 rounded bg-slate-200/50 dark:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors">
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -2139,6 +2372,8 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
   const [editingClassName, setEditingClassName] = useState('');
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [editingStudentName, setEditingStudentName] = useState('');
+  const [classToDelete, setClassToDelete] = useState<string | null>(null);
+  const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
 
   const currentClass = appData.classes?.find(c => c.id === selectedClassId);
 
@@ -2297,19 +2532,39 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
                       <span className="font-bold text-slate-800 dark:text-slate-100">{c.name}</span>
                       <span className="text-xs font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{c.students.length} alunos</span>
                     </div>
-                    <div className="flex items-center ml-3">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setEditingClassId(c.id); setEditingClassName(c.name); }}
-                        className="text-slate-400 hover:text-primary p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); if(window.confirm('Excluir esta turma?')) handleRemoveClass(c.id); }}
-                        className="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                    <div className="flex items-center ml-3 gap-1">
+                      {classToDelete === c.id ? (
+                        <>
+                          <span className="text-[10px] font-bold text-red-500 uppercase mr-1">Tabela?</span>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setClassToDelete(null); }}
+                            className="text-slate-400 hover:text-slate-600 p-2 rounded-full transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleRemoveClass(c.id); setClassToDelete(null); }}
+                            className="text-white bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                          >
+                            Sim
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setEditingClassId(c.id); setEditingClassName(c.name); }}
+                            className="text-slate-400 hover:text-primary p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setClassToDelete(c.id); }}
+                            className="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2374,19 +2629,39 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
                         <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
                         <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope truncate">{s.name}</span>
                       </div>
-                      <div className="flex items-center ml-2 shrink-0">
-                        <button 
-                          onClick={() => { setEditingStudentId(s.id); setEditingStudentName(s.name); }}
-                          className="text-slate-400 hover:text-primary p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => { if(window.confirm('Excluir este aluno?')) handleRemoveStudent(s.id); }}
-                          className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
+                      <div className="flex items-center ml-2 shrink-0 gap-1">
+                        {studentToDelete === s.id ? (
+                          <>
+                            <span className="text-[10px] font-bold text-red-500 uppercase flex items-center mr-1">Excluir?</span>
+                            <button 
+                              onClick={() => setStudentToDelete(null)}
+                              className="text-slate-400 hover:text-slate-600 p-1 rounded transition-colors"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => { handleRemoveStudent(s.id); setStudentToDelete(null); }}
+                              className="text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded text-[10px] font-bold transition-colors"
+                            >
+                              Sim
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => { setEditingStudentId(s.id); setEditingStudentName(s.name); }}
+                              className="text-slate-400 hover:text-primary p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => setStudentToDelete(s.id)}
+                              className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2512,6 +2787,7 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData }: { app
   const [recoveryError, setRecoveryError] = useState('');
   const [recoveredPassword, setRecoveredPassword] = useState('');
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [confirmWipe, setConfirmWipe] = useState(false);
 
   const handleLogin = () => {
     if (appData && (cpf === appData.cpf || cpf.replace(/\D/g, '') === appData.cpf.replace(/\D/g, '')) && password === appData.password) {
@@ -2774,9 +3050,18 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData }: { app
             </button>
             
             {onWipeData && (
-               <button onClick={() => { if(window.confirm('Tem certeza? Isso apagará todos os dados cadastrados neste dispositivo.')) { onWipeData(); } }} className="w-full mt-8 text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors text-center uppercase tracking-widest flex items-center justify-center gap-1">
-                 Limpar todos os dados locais
-               </button>
+              <div className="mt-8 flex flex-col items-center">
+                {confirmWipe ? (
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmWipe(false)} className="px-3 py-1 text-xs font-bold bg-slate-200 text-slate-500 rounded-lg">Cancelar</button>
+                    <button onClick={onWipeData} className="px-3 py-1 text-xs font-bold bg-red-500 text-white rounded-lg">Sim, apagar tudo</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmWipe(true)} className="w-full text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors text-center uppercase tracking-widest flex items-center justify-center gap-1">
+                    Limpar todos os dados locais
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -2907,7 +3192,7 @@ export default function App() {
         console.warn('Dexie Bridge error:', e);
       }
       
-      if (newData.googleSynced && auth.currentUser) {
+      if (auth.currentUser) {
         syncToFirestore(newData);
       }
       
@@ -3179,11 +3464,11 @@ export default function App() {
     setShowSyncConsent(true);
   };
 
-  const executeGoogleSync = async (silent = false) => {
+  const executeGoogleSync = async (silent = false, isRetry = false) => {
     if (!silent) setShowSyncConsent(false);
     if (!silent) setIsSyncingGoogle(true);
     try {
-      let token = accessToken || localStorage.getItem('google_access_token');
+      let token = isRetry ? null : (localStorage.getItem('google_access_token') || accessToken);
 
       if (!token) {
         if (silent) return; // Do not interrupt user in background
@@ -3303,6 +3588,14 @@ export default function App() {
     } catch (e: any) {
       if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
         console.log("Sincronização cancelada pelo usuário.");
+      } else if (e instanceof Error && e.message.includes('Sessão expirada')) {
+        console.log("Sessão do Google expirada.");
+        if (!silent && !isRetry) {
+          await executeGoogleSync(false, true);
+          return;
+        } else if (!silent) {
+          triggerNotification('Sessão expirada. Por favor, conecte-se ao Google novamente.', 'info');
+        }
       } else {
         console.error("Google sync error", e);
         if (!silent) {
@@ -3369,7 +3662,7 @@ export default function App() {
     localStorage.setItem('horizonte_data', JSON.stringify(data));
     setIsLogged(true);
     setActiveScreen('dashboard');
-    if (data.googleSynced && auth.currentUser) {
+    if (auth.currentUser) {
       syncToFirestore(data);
     }
   };
@@ -3411,6 +3704,9 @@ export default function App() {
           onToggleViewRole={(r) => setCurrentViewRole(r)} 
           onUpdateActivities={(activities) => {
             updateAppData(prev => ({ ...prev, googleClassroomActivities: activities }));
+          }}
+          onUpdateClasses={(classes) => {
+            updateAppData(prev => ({ ...prev, classes }));
           }}
         />
       );

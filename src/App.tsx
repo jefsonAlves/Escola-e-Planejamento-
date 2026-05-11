@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db, messaging } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
@@ -145,6 +145,14 @@ const BottomNav = ({ active, onChange, role }: { active: Screen; onChange: (s: S
   );
 };
 
+export interface MaterialData {
+  id: string;
+  title: string;
+  link: string;
+  type: 'video' | 'document' | 'link';
+  targetClasses: string[];
+}
+
 interface AppState {
   schoolName: string;
   teacherName: string; // Used as main user name for backward compatibility
@@ -159,6 +167,7 @@ interface AppState {
   notifications?: NotificationData[];
   googleCalendarEvents?: GoogleEvent[];
   googleClassroomActivities?: GoogleCourseWork[];
+  materials?: MaterialData[];
 }
 
 interface GoogleEvent {
@@ -203,11 +212,18 @@ interface NotificationData {
   date: string;
 }
 
+export interface ClassSchedule {
+  days: string[];
+  startTime: string;
+  endTime: string;
+}
+
 interface ClassData {
   id: string;
   name: string;
   students: Student[];
   evaluationMethods?: string[];
+  schedule?: ClassSchedule;
 }
 
 interface Occurrence {
@@ -1268,14 +1284,20 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
     <div className="space-y-6 pb-24 overflow-x-hidden">
       <div className="flex justify-between items-end mb-4">
         <div>
+          <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block mb-1">Selecione a Turma</label>
           <select 
             value={activeClassId || ''}
             onChange={e => {setActiveClassId(e.target.value); setSearchQuery('');}}
-            className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest bg-transparent border-0 outline-none p-0 cursor-pointer mb-1 block"
+            className="text-xl font-bold text-primary bg-transparent outline-none cursor-pointer border-b-2 border-primary/20 pb-1 pr-6"
           >
             {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <h2 className="text-2xl font-bold text-primary">Chamada Inteligente</h2>
+          {activeClass?.schedule?.days?.length ? (
+            <p className="text-[10px] font-bold text-slate-400 mt-2 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {activeClass.schedule.days.join(', ')} • {activeClass.schedule.startTime} - {activeClass.schedule.endTime}
+            </p>
+          ) : null}
         </div>
         <div className="glass-card px-4 py-2 rounded-xl flex items-center gap-2 text-primary text-xs font-bold relative">
           <Calendar className="w-4 h-4 shrink-0" />
@@ -1911,6 +1933,161 @@ const AgendaScreen = ({ appData, onShowNotification, onSyncGoogle, isSyncingGoog
           </motion.div>
         </div>
       )}
+    </div>
+  );
+};
+
+const MaterialsScreen = ({ appData, onUpdateMaterials }: { appData: AppState, onUpdateMaterials: (materials: MaterialData[]) => void }) => {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newLink, setNewLink] = useState('');
+  const [newType, setNewType] = useState<'video' | 'document' | 'link'>('document');
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+
+  const handleAddSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle || (!newLink && newType !== 'document')) return;
+    
+    // If no classes selected, default to all classes
+    const finalSelectedClasses = selectedClasses.length > 0 ? selectedClasses : (appData.classes || []).map(c => c.id);
+    
+    const newMaterial: MaterialData = {
+      id: crypto.randomUUID(),
+      title: newTitle,
+      link: newLink,
+      type: newType,
+      targetClasses: finalSelectedClasses
+    };
+    onUpdateMaterials([...(appData.materials || []), newMaterial]);
+    setShowAddForm(false);
+    setNewTitle('');
+    setNewLink('');
+    setNewType('document');
+    setSelectedClasses([]);
+  };
+
+  const handleDelete = (id: string) => {
+    onUpdateMaterials((appData.materials || []).filter(m => m.id !== id));
+  };
+
+  const classes = appData.classes || [];
+  const materials = appData.materials || [];
+
+  return (
+    <div className="space-y-6 pb-24">
+      <div className="flex justify-between items-end mb-4">
+        <div>
+          <h2 className="text-2xl font-bold text-primary">Materiais Didáticos</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 font-manrope font-medium">Cadastre apostilas, vídeos e defina para quais turmas.</p>
+        </div>
+        <button 
+          onClick={() => setShowAddForm(!showAddForm)}
+          className="bg-primary text-white px-4 py-2 rounded-xl font-bold hover:bg-primary/90 transition-colors flex items-center gap-2"
+        >
+          {showAddForm ? <X className="w-5 h-5"/> : <Plus className="w-5 h-5" />}
+          <span className="hidden sm:inline">{showAddForm ? 'Cancelar' : 'Novo Material'}</span>
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showAddForm && (
+          <motion.form 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+            onSubmit={handleAddSubmit}
+          >
+            <div className="glass-card p-6 rounded-3xl space-y-4 mb-6">
+              <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-4">
+                <Upload className="w-5 h-5 text-secondary" /> Cadastrar Novo Material
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase ml-1">Título do Material</label>
+                  <input required value={newTitle} onChange={e => setNewTitle(e.target.value)} type="text" placeholder="Ex: Aula de Ciências - Fotossíntese" className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-500 uppercase ml-1">Tipo</label>
+                  <select value={newType} onChange={e => setNewType(e.target.value as any)} className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer">
+                    <option value="document">Apostila/Documento</option>
+                    <option value="video">Vídeo Aula</option>
+                    <option value="link">Link Externo</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Link (URL)</label>
+                <input required={newType !== 'document'} value={newLink} onChange={e => setNewLink(e.target.value)} type="url" placeholder="https://..." className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold" />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1 block mb-2">Turmas Aplicadas (vazio = todas)</label>
+                <div className="flex flex-wrap gap-2">
+                  {classes.map(c => (
+                    <button
+                      type="button"
+                      key={c.id}
+                      onClick={() => {
+                        setSelectedClasses(prev => prev.includes(c.id) ? prev.filter(id => id !== c.id) : [...prev, c.id])
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-colors ${selectedClasses.includes(c.id) ? 'bg-secondary text-white border-secondary' : 'bg-transparent text-slate-500 border-slate-200 dark:border-slate-700 dark:text-slate-400'}`}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button type="submit" className="w-full md:w-auto mt-4 px-6 py-3 rounded-xl shadow-lg border-b-4 border-emerald-600 bg-emerald-500 font-extrabold text-white text-sm uppercase tracking-widest active:translate-y-1 active:border-b-0 hover:bg-emerald-400 transition-all flex justify-center items-center gap-2">
+                  <Check className="w-5 h-5" /> Salvar Material
+                </button>
+              </div>
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {materials.length === 0 && !showAddForm && (
+          <div className="col-span-full py-16 text-center glass-card rounded-3xl border-dashed border-2 border-slate-200 dark:border-slate-700/50">
+            <Book className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+            <h3 className="text-lg font-bold text-slate-600 dark:text-slate-300">Nenhum material cadastrado</h3>
+            <p className="text-slate-500 text-sm mt-1 max-w-sm mx-auto">Clique em "Novo Material" para adicionar apostilas, vídeos e recursos para suas turmas.</p>
+          </div>
+        )}
+        {materials.map(m => (
+          <div key={m.id} className="glass-card p-6 rounded-3xl flex flex-col justify-between group border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+            <div>
+              <div className="flex items-start justify-between mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
+                  {m.type === 'video' ? <Video className="w-6 h-6"/> : m.type === 'link' ? <Link2 className="w-6 h-6"/> : <FileText className="w-6 h-6" />}
+                </div>
+                <button onClick={() => handleDelete(m.id)} className="text-slate-400 hover:text-red-500 transition-colors bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-100 dark:border-slate-700 opacity-0 group-hover:opacity-100 hover:shadow-md">
+                  <Trash2 className="w-4 h-4"/>
+                </button>
+              </div>
+              <h4 className="font-bold text-lg text-slate-800 dark:text-slate-100 mb-2">{m.title}</h4>
+              <a href={m.link || '#'} target="_blank" rel="noreferrer" className="text-sm font-bold text-primary hover:underline break-all line-clamp-2 mb-6 block bg-primary/5 p-3 rounded-xl">{m.link || 'Arquivo Sem Link (Em breve upload real)'}</a>
+            </div>
+            
+            <div className="mt-auto border-t border-slate-100 dark:border-slate-800/50 pt-4">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Turmas</span>
+              <div className="flex flex-wrap gap-2">
+                {m.targetClasses.slice(0, 3).map(cid => {
+                  const cname = classes.find(c => c.id === cid)?.name || 'Desconhecida';
+                  return <span key={cid} className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-3 py-1 rounded-full font-bold">{cname}</span>;
+                })}
+                {m.targetClasses.length > 3 && <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-3 py-1 rounded-full font-bold">+{m.targetClasses.length - 3}</span>}
+                {m.targetClasses.length === classes.length && classes.length > 0 && <span className="text-[10px] bg-secondary/10 text-secondary px-3 py-1 rounded-full font-bold ml-1 border border-secondary/20">Todas as Turmas</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -2674,6 +2851,66 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
           </div>
         )}
       </div>
+
+      {selectedClassId && currentClass && (
+        <div className="glass-card p-6 rounded-3xl mt-6">
+          <h3 className="text-sm font-bold text-primary uppercase tracking-widest mb-4">Configurar Horários da Turma</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase ml-1">Dias da Semana</label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'].map(day => (
+                  <button
+                    key={day}
+                    onClick={() => {
+                      const currentDays = currentClass.schedule?.days || [];
+                      const newDays = currentDays.includes(day) ? currentDays.filter(d => d !== day) : [...currentDays, day];
+                      const updatedClasses = (appData.classes || []).map(c => 
+                        c.id === currentClass.id ? { ...c, schedule: { ...c.schedule, startTime: c.schedule?.startTime || '08:00', endTime: c.schedule?.endTime || '12:00', days: newDays } } : c
+                      );
+                      onUpdateClasses(updatedClasses);
+                    }}
+                    className={`px-4 py-2 rounded-xl font-bold text-sm transition-colors border ${currentClass.schedule?.days?.includes(day) ? 'bg-primary text-white border-primary' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'}`}
+                  >
+                    {day}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Horário de Início</label>
+                <input 
+                  type="time" 
+                  value={currentClass.schedule?.startTime || '08:00'}
+                  onChange={(e) => {
+                    const updatedClasses = (appData.classes || []).map(c => 
+                      c.id === currentClass.id ? { ...c, schedule: { days: c.schedule?.days || [], endTime: c.schedule?.endTime || '12:00', startTime: e.target.value } } : c
+                    );
+                    onUpdateClasses(updatedClasses);
+                  }}
+                  className="w-full mt-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase ml-1">Horário de Término</label>
+                <input 
+                  type="time" 
+                  value={currentClass.schedule?.endTime || '12:00'}
+                  onChange={(e) => {
+                    const updatedClasses = (appData.classes || []).map(c => 
+                      c.id === currentClass.id ? { ...c, schedule: { days: c.schedule?.days || [], startTime: c.schedule?.startTime || '08:00', endTime: e.target.value } } : c
+                    );
+                    onUpdateClasses(updatedClasses);
+                  }}
+                  className="w-full mt-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
@@ -3807,28 +4044,10 @@ export default function App() {
         />
       );
       case 'materials': return (
-        <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-          <motion.div 
-            initial={{ scale: 0.8, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="w-32 h-32 bg-secondary/10 rounded-full flex items-center justify-center"
-          >
-            <Book className="w-16 h-16 text-secondary" />
-          </motion.div>
-          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Preparação de Materiais</h2>
-          <p className="text-slate-500 max-w-sm">Esta área centralizará apostilas, vídeos educativos e simulados para os alunos.</p>
-          <div className="grid grid-cols-1 gap-4 w-full mt-8 text-left max-w-xs mx-auto">
-             <button className="bg-slate-50 border-2 border-dashed border-slate-200 p-4 rounded-xl text-center text-slate-500 hover:bg-slate-100 transition-colors">
-               <Upload className="w-6 h-6 mx-auto mb-2 text-slate-400" />
-               <span className="text-sm font-bold">Fazer Upload (Em breve)</span>
-             </button>
-             <button className="bg-blue-50/50 border-2 border-blue-100 p-4 rounded-xl text-center text-blue-600 hover:bg-blue-50 transition-colors">
-               <Sparkles className="w-6 h-6 mx-auto mb-2 text-blue-500" />
-               <span className="text-sm font-bold">Gerar com IA (Em breve)</span>
-             </button>
-          </div>
-          <button onClick={() => setActiveScreen('dashboard')} className="mt-8 bg-secondary text-white px-8 py-3 rounded-xl font-bold hover:bg-secondary/90 transition-colors">Voltar ao Início</button>
-        </div>
+        <MaterialsScreen 
+          appData={appData!} 
+          onUpdateMaterials={(mats) => updateAppData(prev => ({ ...prev, materials: mats }))}
+        />
       );
       case 'director': return (
         <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">

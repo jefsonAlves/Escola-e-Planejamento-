@@ -103,8 +103,8 @@ const Header = ({ title, showBack, onBack, onSettings, avatarUrl, onNavigateDire
 
 const BottomNav = ({ active, onChange, role }: { active: Screen; onChange: (s: Screen) => void; role?: 'teacher' | 'student' | 'both' }) => {
   let items: { id: Screen; label: string; icon: any }[] = [
-    { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
     { id: 'studentsHub', label: 'Alunos', icon: Users },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'agenda', label: 'Agenda', icon: Calendar },
     { id: 'reports', label: 'Relatórios', icon: FileText },
   ];
@@ -1086,7 +1086,7 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
       <GoogleIntegrationBlocks appData={appData} onSyncGoogle={onSyncGoogle} isSyncingGoogle={isSyncingGoogle} onShowNotification={onShowNotification} onUpdateActivities={onUpdateActivities} />
 
       {/* Quick Actions (Ações Rápidas) */}
-      <section className="grid grid-cols-2 gap-3">
+      <section className="grid grid-cols-1 gap-3">
         <motion.button 
           whileTap={{ scale: 0.95 }}
           onClick={() => onNavigate('studentsHub')}
@@ -1094,14 +1094,6 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
         >
           <Users className="w-5 h-5 text-blue-500" />
           <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Central do Aluno</span>
-        </motion.button>
-        <motion.button 
-          whileTap={{ scale: 0.95 }}
-          onClick={() => onNavigate('classes')}
-          className="glass-card p-4 rounded-xl flex items-center justify-center gap-2 hover:bg-white/40 dark:hover:bg-slate-800/40 transition-colors"
-        >
-          <GraduationCap className="w-5 h-5 text-emerald-500" />
-          <span className="text-sm font-bold text-slate-700 dark:text-slate-200">Turmas</span>
         </motion.button>
       </section>
 
@@ -1238,10 +1230,6 @@ const TeacherDashboard = ({ onNavigate, onNewOccurrence, appData, onShowNotifica
           </div>
         </div>
       </section>
-
-      <button onClick={() => onShowNotification('Selecione um aluno na Frequência para registrar ocorrência.')} className="fixed bottom-24 right-6 w-14 h-14 primary-gradient text-white rounded-full shadow-[0_8px_30px_rgba(113,42,226,0.4)] flex items-center justify-center active:scale-90 transition-all z-40">
-        <Plus className="w-8 h-8" />
-      </button>
     </div>
   );
 };
@@ -1272,7 +1260,8 @@ const StudentsHubScreen = ({ onNavigate, onOpenGrades }: { onNavigate: (screen: 
     { id: 'boletim', label: 'Boletim', icon: FileText, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
     { id: 'grades', label: 'Lançar Notas', icon: Award, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/20', action: onOpenGrades },
     { id: 'reports', label: 'Relatórios', icon: LayoutDashboard, color: 'text-emerald-500', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
-    { id: 'occurrence', label: 'Advertência', icon: AlertOctagon, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' }
+    { id: 'occurrence', label: 'Advertência', icon: AlertOctagon, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+    { id: 'classes', label: 'Turmas/Alunos', icon: GraduationCap, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/20' }
   ];
 
   return (
@@ -1469,7 +1458,7 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
   );
 };
 
-const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?: Student, occurrences: Occurrence[], onSave: (occ: Omit<Occurrence, 'id'>) => void, onCancel: () => void }) => {
+const OccurrenceScreen = ({ student, occurrences, onSave, onCancel, classes, onSelectStudent }: { student?: Student, occurrences: Occurrence[], onSave: (occ: Omit<Occurrence, 'id'>) => void, onCancel: () => void, classes?: ClassData[], onSelectStudent?: (id: string) => void }) => {
   const [tab, setTab] = useState<'new' | 'history' | 'charts'>('new');
   const [activeStatus, setActiveStatus] = useState<'praise' | 'attention' | 'critical'>('attention');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -1518,6 +1507,74 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel }: { student?
     });
   };
   
+  const [studentSearch, setStudentSearch] = useState('');
+  const [activeClassId, setActiveClassId] = useState<string | null>(classes?.[0]?.id || null);
+
+  if (!student && classes && onSelectStudent) {
+    const activeClass = classes.find(c => c.id === activeClassId);
+    let studentsToShow = activeClass?.students || [];
+
+    if (studentSearch.trim() !== '') {
+       studentsToShow = classes.flatMap(c => c.students).filter(s => s.name.toLowerCase().includes(studentSearch.toLowerCase()));
+    }
+
+    return (
+      <div className="space-y-6 pb-24">
+        <div>
+          <h2 className="text-2xl font-bold text-primary">Nova Advertência</h2>
+          <p className="text-sm text-slate-500 font-manrope">Selecione o aluno para registrar a ocorrência.</p>
+        </div>
+
+        <div className="flex gap-2">
+          <div className="flex-1 space-y-1">
+            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Turma</label>
+            <select 
+              value={activeClassId || ''}
+              onChange={e => {setActiveClassId(e.target.value); setStudentSearch('');}}
+              className="w-full text-lg font-bold text-primary bg-transparent outline-none cursor-pointer border-b-2 border-primary/20 pb-1 pr-6"
+            >
+              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+        </div>
+        
+        <div className="relative">
+          <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Ou busque aluno pelo nome..."
+            value={studentSearch}
+            onChange={(e) => setStudentSearch(e.target.value)}
+            className="w-full bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:border-primary pl-12 pr-4 py-3 rounded-2xl font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+          />
+        </div>
+
+        <div className="space-y-2 pt-2">
+           {studentsToShow.length === 0 ? (
+              <p className="text-center py-12 text-slate-400 font-manrope">Nenhum aluno encontrado.</p>
+           ) : (
+              <div className="glass-card p-4 rounded-xl">
+                 <div className="space-y-1">
+                    {studentsToShow.map(s => (
+                       <div key={s.id} onClick={() => onSelectStudent(s.id)} className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-xl cursor-pointer transition-colors group">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                             {s.avatar ? <img src={s.avatar} alt="Avatar" className="w-full h-full rounded-full object-cover" /> : <UserCheck className="w-5 h-5 text-slate-400" />}
+                          </div>
+                          <div>
+                            <p className="font-bold text-sm text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">{s.name}</p>
+                            <p className="text-xs text-slate-400">{s.grade || (activeClass?.name)} • Toque para selecionar</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-slate-300 ml-auto group-hover:text-primary transition-colors" />
+                       </div>
+                    ))}
+                 </div>
+              </div>
+           )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 pb-32">
       {/* Student context */}
@@ -3493,7 +3550,7 @@ import { addToSyncQueue, processSyncQueue } from './sync/syncManager';
 // --- Main App ---
 
 export default function App() {
-  const [activeScreen, setActiveScreen] = useState<Screen>('dashboard');
+  const [activeScreen, setActiveScreen] = useState<Screen>('studentsHub');
   const [appData, setAppData] = useState<AppState | null>(() => {
     try {
       const saved = localStorage.getItem('horizonte_data');
@@ -3621,14 +3678,14 @@ export default function App() {
     initGoogleAuthListener((token) => {
       setAccessToken(token);
       setIsLogged(true);
-      setActiveScreen('dashboard');
+      setActiveScreen('studentsHub');
     });
 
     const handleWebToken = (e: any) => {
       if (e.detail) {
         setAccessToken(e.detail);
         setIsLogged(true);
-        setActiveScreen('dashboard');
+        setActiveScreen('studentsHub');
       }
     };
     window.addEventListener('google-access-token-updated', handleWebToken);
@@ -3641,7 +3698,7 @@ export default function App() {
           localStorage.setItem('google_access_token', token);
           setAccessToken(token);
           setIsLogged(true);
-          setActiveScreen('dashboard');
+          setActiveScreen('studentsHub');
           window.location.hash = '';
        }
     }
@@ -4078,7 +4135,7 @@ export default function App() {
     setAppData(data);
     localStorage.setItem('horizonte_data', JSON.stringify(data));
     setIsLogged(true);
-    setActiveScreen('dashboard');
+    setActiveScreen('studentsHub');
     if (auth.currentUser) {
       syncToFirestore(data);
     }
@@ -4091,7 +4148,7 @@ export default function App() {
 
   const getScreenTitle = () => {
     switch(activeScreen) {
-      case 'dashboard': return 'Início';
+      case 'dashboard': return 'Dashboard';
       case 'studentsHub': return 'Alunos';
       case 'attendance': return 'Frequência';
       case 'agenda': return 'Agenda';
@@ -4131,7 +4188,10 @@ export default function App() {
       );
       case 'studentsHub': return (
         <StudentsHubScreen 
-          onNavigate={(s) => setActiveScreen(s)}
+          onNavigate={(s) => {
+            if (s === 'occurrence') setSelectedStudentId(null);
+            setActiveScreen(s);
+          }}
           onOpenGrades={() => setShowGradeDialog(true)}
         />
       );
@@ -4182,6 +4242,8 @@ export default function App() {
         <OccurrenceScreen 
           student={allStudents.find(s => s.id === selectedStudentId)} 
           occurrences={appData?.occurrences.filter((o: Occurrence) => o.studentId === selectedStudentId) || []}
+          classes={appData?.classes || []}
+          onSelectStudent={(id) => setSelectedStudentId(id)}
           onSave={async (accData) => {
              const student = allStudents.find(s => s.id === accData.studentId);
              if (accData.status === 'critical') {
@@ -4276,7 +4338,7 @@ export default function App() {
           </motion.div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Sala da Diretora</h2>
           <p className="text-slate-500 max-w-sm">Esta área está em desenvolvimento. Em breve você terá acesso a relatórios gerenciais e controle institucional.</p>
-          <button onClick={() => setActiveScreen('dashboard')} className="mt-8 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-primary/90 transition-colors">Voltar ao Início</button>
+          <button onClick={() => setActiveScreen('studentsHub')} className="mt-8 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-primary/90 transition-colors">Voltar ao Início</button>
         </div>
       );
       case 'settings': return <SettingsScreen 
@@ -4352,8 +4414,7 @@ export default function App() {
         avatarUrl={appData?.avatarUrl}
         showBack={activeScreen === 'occurrence' || activeScreen === 'settings' || activeScreen === 'classes' || activeScreen === 'director' || activeScreen === 'materials' || activeScreen === 'boletim' || activeScreen === 'attendance'}
         onBack={() => {
-          if (activeScreen === 'occurrence' || activeScreen === 'attendance' || activeScreen === 'boletim') setActiveScreen('studentsHub');
-          else setActiveScreen('dashboard');
+          setActiveScreen('studentsHub');
         }}
         onSettings={activeScreen !== 'settings' ? () => setActiveScreen('settings') : undefined}
         onNavigateDirector={() => setActiveScreen('director')}

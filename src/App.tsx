@@ -8,7 +8,7 @@ import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db, messaging } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { getToken, onMessage } from 'firebase/messaging';
 
 import { Capacitor } from '@capacitor/core';
@@ -1323,36 +1323,47 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
     return days[dayIndex];
   };
 
+  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+  const selectedDateObj = new Date(attendanceDate + 'T12:00:00');
+  const selectedDayName = getDayName(selectedDateObj.getDay());
+  const isSelectedToday = attendanceDate === new Date().toISOString().split('T')[0];
+
   const today = new Date();
-  const currentDayName = getDayName(today.getDay());
   const currentHour = today.getHours();
   const currentMinute = today.getMinutes();
   const currentTimeShort = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
 
-  // Prioritize classes that happen today and sort by proximity to current time
+  // Prioritize classes that happen on selected day
   const sortedClasses = [...classes].sort((a, b) => {
-    const aIsToday = a.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)));
-    const bIsToday = b.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)));
+    const aIsSelectedDay = a.schedule?.days?.some(d => d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)));
+    const bIsSelectedDay = b.schedule?.days?.some(d => d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)));
 
-    if (aIsToday && !bIsToday) return -1;
-    if (!aIsToday && bIsToday) return 1;
+    if (aIsSelectedDay && !bIsSelectedDay) return -1;
+    if (!aIsSelectedDay && bIsSelectedDay) return 1;
 
-    if (aIsToday && bIsToday && a.schedule && b.schedule) {
-      // Both today - show those starting soon or already started but not finished first
+    if (aIsSelectedDay && bIsSelectedDay && a.schedule && b.schedule) {
       const aStarts = a.schedule.startTime;
       const bStarts = b.schedule.startTime;
-      
-      // If one is after current time and other is before, or both are after...
-      // Simple sort by start time usually works best for "order of attendance"
       return aStarts.localeCompare(bStarts);
     }
-
     return 0;
   });
 
   const [activeClassId, setActiveClassId] = useState<string | null>(sortedClasses[0]?.id || null);
+
+  // Keep track of activeClassId with a stable default when sortedClasses changes
+  useEffect(() => {
+    // If the currently selected class is not for the selected day, but there IS a class for the selected day, switch to it.
+    const hasClassForDay = sortedClasses.some(c => c.schedule?.days?.some(d => d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3))));
+    const activeClassIsForDay = classes.find(c => c.id === activeClassId)?.schedule?.days?.some(d => d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)));
+    
+    if (hasClassForDay && !activeClassIsForDay) {
+      setActiveClassId(sortedClasses[0]?.id || null);
+    }
+  }, [attendanceDate, selectedDayName]);
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   
   const activeClass = classes.find(c => c.id === activeClassId);
   const students = activeClass?.students || [];
@@ -1379,10 +1390,10 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
             className="text-xl font-bold text-primary bg-transparent outline-none cursor-pointer border-b-2 border-primary/20 pb-1 pr-6"
           >
             {sortedClasses.map(c => {
-              const isToday = c.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)));
+              const isTargetDay = c.schedule?.days?.some(d => d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)));
               return (
                 <option key={c.id} value={c.id}>
-                  {isToday ? '⭐ ' : ''}{c.name} {isToday ? '(Hoje)' : ''}
+                  {isTargetDay ? '⭐ ' : ''}{c.name} {isTargetDay ? (isSelectedToday ? '(Hoje)' : `(${selectedDayName})`) : ''}
                 </option>
               );
             })}
@@ -1399,14 +1410,14 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
         </div>
       </div>
 
-      {/* Today's Schedule Quick Rail */}
-      {sortedClasses.filter(c => c.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)))).length > 0 && (
+      {/* Selected Day's Schedule Quick Rail */}
+      {sortedClasses.filter(c => c.schedule?.days?.some(d => d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)))).length > 0 && (
         <div className="space-y-2">
            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-             <Sparkles className="w-3 h-3 text-amber-500" /> Aulas de Hoje ({currentDayName})
+             <Sparkles className="w-3 h-3 text-amber-500" /> Aulas de {isSelectedToday ? 'Hoje' : selectedDayName}
            </h4>
            <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar scroll-smooth no-scrollbar">
-              {sortedClasses.filter(c => c.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)))).map(c => (
+              {sortedClasses.filter(c => c.schedule?.days?.some(d => d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)))).map(c => (
                  <button
                     key={c.id}
                     onClick={() => { setActiveClassId(c.id); setSearchQuery(''); }}
@@ -2900,7 +2911,70 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
   const [classToDelete, setClassToDelete] = useState<string | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
 
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [schoolClasses, setSchoolClasses] = useState<{ id: string, name: string, studentsCount: number, teacherName: string, originalClass: any }[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importNotice, setImportNotice] = useState('');
+
   const currentClass = appData.classes?.find(c => c.id === selectedClassId);
+
+  const fetchSchoolClasses = async () => {
+    if (!appData.schoolName) {
+      setImportNotice("Adicione o nome da sua escola em Configurações para buscar turmas de outros professores.");
+      return;
+    }
+    setIsImporting(true);
+    setImportNotice('');
+    try {
+      const q = query(collection(db, 'users'), where('schoolName', '==', appData.schoolName));
+      const querySnapshot = await getDocs(q);
+      const fetchedClasses: any[] = [];
+      querySnapshot.forEach((docSnap) => {
+        if (docSnap.id === auth.currentUser?.uid) return; // Skip own classes
+        const data = docSnap.data();
+        if (data.classesStr) {
+           try {
+              const parsedClasses = JSON.parse(data.classesStr);
+              parsedClasses.forEach((c: any) => {
+                 fetchedClasses.push({
+                    id: Math.random().toString(36).substring(2, 9), // Generate new ID so we don't conflict
+                    name: c.name,
+                    studentsCount: c.students?.length || 0,
+                    teacherName: data.teacherName || 'Professor(a)',
+                    originalClass: c
+                 });
+              });
+           } catch(e){}
+        }
+      });
+      setSchoolClasses(fetchedClasses);
+      if (fetchedClasses.length === 0) setImportNotice("Nenhuma turma encontrada nesta instituição.");
+    } catch (error) {
+      console.error(error);
+      setImportNotice("Erro ao buscar turmas. Tente novamente.");
+    }
+    setIsImporting(false);
+  };
+
+  const handleImportClasses = (selectedIds: string[]) => {
+     let newClasses = [...(appData.classes || [])];
+     selectedIds.forEach(id => {
+        const found = schoolClasses.find(sc => sc.id === id);
+        if (found) {
+           // Create a fresh copy to prevent mutating the original downloaded structure
+           const clonedClass = JSON.parse(JSON.stringify(found.originalClass));
+           clonedClass.id = Math.random().toString(36).substring(2, 9); // fresh ID
+           // Give students fresh IDs too, except maybe don't need to if we assume they won't conflict, but safer to do it
+           clonedClass.students = (clonedClass.students || []).map((s: any) => ({
+               ...s,
+               id: Math.random().toString(36).substring(2, 9)
+           }));
+           newClasses.push(clonedClass);
+        }
+     });
+     onUpdateClasses(newClasses);
+     setShowImportModal(false);
+  };
 
   const handleEditStudent = () => {
     if (!editingStudentId || !editingStudentName.trim() || !selectedClassId) return;
@@ -3005,7 +3079,68 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
           <h2 className="text-2xl font-bold text-primary">Gerenciar Turmas</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 font-manrope font-medium">Adicione turmas e alunos.</p>
         </div>
+        <button 
+          onClick={() => { setShowImportModal(true); fetchSchoolClasses(); }}
+          className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-1"
+        >
+          <Download className="w-4 h-4" /> Importar da Escola
+        </button>
       </div>
+
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowImportModal(false)}></div>
+          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden relative z-10 flex flex-col max-h-[80vh]">
+            <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">Importar Turmas</h3>
+                  <p className="text-xs text-slate-500 font-manrope mt-1">
+                    Baixe turmas cadastradas por outros professores de <span className="font-bold text-primary">{appData.schoolName || 'sua escola'}</span>.
+                  </p>
+                </div>
+                <button onClick={() => setShowImportModal(false)} className="text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded-full">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1 custom-scrollbar">
+              {isImporting ? (
+                <div className="py-8 flex flex-col items-center justify-center text-slate-400">
+                  <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin mb-4" />
+                  <p className="text-sm font-bold animate-pulse">Buscando turmas na instituição...</p>
+                </div>
+              ) : importNotice ? (
+                <div className="py-8 text-center px-4">
+                  <p className="text-sm text-slate-500 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl font-bold">{importNotice}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {schoolClasses.map(sc => (
+                    <div key={sc.id} className="flex items-center justify-between p-4 border border-slate-100 dark:border-slate-800 rounded-xl hover:border-primary/30 transition-colors">
+                      <div>
+                        <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base">{sc.name}</h4>
+                        <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                          <span className="font-bold">{sc.studentsCount} alunos</span>
+                          <span>•</span>
+                          <span>Prof. {sc.teacherName}</span>
+                        </p>
+                      </div>
+                      <button 
+                         onClick={() => handleImportClasses([sc.id])}
+                         className="bg-primary text-white p-2.5 rounded-lg font-bold text-xs hover:bg-primary/90 transition-colors shadow-sm"
+                      >
+                         Baixar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Classes List */}

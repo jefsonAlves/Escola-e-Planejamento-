@@ -42,6 +42,7 @@ interface Student {
   attendanceHistory?: Record<string, 'present' | 'absent' | 'late' | 'none'>;
   diagnostic?: string;
   evaluations?: StudentEvaluation[];
+  specialNeeds?: string[]; // e.g., ['TEA', 'DI']
 }
 
 // --- Mock Data ---
@@ -1298,8 +1299,58 @@ const StudentsHubScreen = ({ onNavigate, onOpenGrades }: { onNavigate: (screen: 
   );
 };
 
+const SpecialNeedBadge = ({ type }: { type: string }) => {
+  const configs: Record<string, { label: string, bg: string, text: string, icon: string }> = {
+    'TEA': { label: 'TEA', bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400', icon: '🧩' },
+    'DI': { label: 'DI', bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400', icon: '🧠' },
+    'DEF': { label: 'DEF', bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', icon: '♿' },
+    'OUT': { label: 'OUT', bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-600 dark:text-slate-400', icon: '✨' },
+  };
+
+  const config = configs[type] || configs['OUT'];
+
+  return (
+    <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-extrabold tracking-tighter ${config.bg} ${config.text} border border-current/10 shadow-sm animate-pulse`}>
+      <span>{config.icon}</span>
+      <span>{config.label}</span>
+    </span>
+  );
+};
+
 const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }: { onSelectStudent: (id: string) => void, classes: ClassData[], onFinish: () => void, onUpdateStatus: (classId: string, studentId: string, date: string, status: 'present' | 'absent' | 'late' | 'none') => void }) => {
-  const [activeClassId, setActiveClassId] = useState<string | null>(classes[0]?.id || null);
+  const getDayName = (dayIndex: number) => {
+    const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    return days[dayIndex];
+  };
+
+  const today = new Date();
+  const currentDayName = getDayName(today.getDay());
+  const currentHour = today.getHours();
+  const currentMinute = today.getMinutes();
+  const currentTimeShort = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+
+  // Prioritize classes that happen today and sort by proximity to current time
+  const sortedClasses = [...classes].sort((a, b) => {
+    const aIsToday = a.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)));
+    const bIsToday = b.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)));
+
+    if (aIsToday && !bIsToday) return -1;
+    if (!aIsToday && bIsToday) return 1;
+
+    if (aIsToday && bIsToday && a.schedule && b.schedule) {
+      // Both today - show those starting soon or already started but not finished first
+      const aStarts = a.schedule.startTime;
+      const bStarts = b.schedule.startTime;
+      
+      // If one is after current time and other is before, or both are after...
+      // Simple sort by start time usually works best for "order of attendance"
+      return aStarts.localeCompare(bStarts);
+    }
+
+    return 0;
+  });
+
+  const [activeClassId, setActiveClassId] = useState<string | null>(sortedClasses[0]?.id || null);
   const [searchQuery, setSearchQuery] = useState('');
   const [attendanceDate, setAttendanceDate] = useState(() => new Date().toISOString().split('T')[0]);
   
@@ -1327,14 +1378,15 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
             onChange={e => {setActiveClassId(e.target.value); setSearchQuery('');}}
             className="text-xl font-bold text-primary bg-transparent outline-none cursor-pointer border-b-2 border-primary/20 pb-1 pr-6"
           >
-            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {sortedClasses.map(c => {
+              const isToday = c.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)));
+              return (
+                <option key={c.id} value={c.id}>
+                  {isToday ? '⭐ ' : ''}{c.name} {isToday ? '(Hoje)' : ''}
+                </option>
+              );
+            })}
           </select>
-          {activeClass?.schedule?.days?.length ? (
-            <p className="text-[10px] font-bold text-slate-400 mt-2 flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              {activeClass.schedule.days.join(', ')} • {activeClass.schedule.startTime} - {activeClass.schedule.endTime}
-            </p>
-          ) : null}
         </div>
         <div className="glass-card px-4 py-2 rounded-xl flex items-center gap-2 text-primary text-xs font-bold relative">
           <Calendar className="w-4 h-4 shrink-0" />
@@ -1346,6 +1398,44 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
           />
         </div>
       </div>
+
+      {/* Today's Schedule Quick Rail */}
+      {sortedClasses.filter(c => c.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)))).length > 0 && (
+        <div className="space-y-2">
+           <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+             <Sparkles className="w-3 h-3 text-amber-500" /> Aulas de Hoje ({currentDayName})
+           </h4>
+           <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar scroll-smooth no-scrollbar">
+              {sortedClasses.filter(c => c.schedule?.days?.some(d => d.toLowerCase().includes(currentDayName.toLowerCase().substring(0, 3)))).map(c => (
+                 <button
+                    key={c.id}
+                    onClick={() => { setActiveClassId(c.id); setSearchQuery(''); }}
+                    className={`shrink-0 px-4 py-3 rounded-2xl border-2 transition-all flex flex-col gap-1 min-w-[140px] ${
+                       activeClassId === c.id 
+                       ? 'bg-primary border-primary text-white shadow-lg shadow-primary/20' 
+                       : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary/30'
+                    }`}
+                 >
+                    <span className="font-bold text-sm truncate">{c.name}</span>
+                    <span className={`text-[10px] font-bold uppercase tracking-tighter opacity-70 flex items-center gap-1`}>
+                       <Clock className="w-3 h-3" /> {c.schedule?.startTime} - {c.schedule?.endTime}
+                    </span>
+                 </button>
+              ))}
+           </div>
+        </div>
+      )}
+
+      {activeClass?.schedule?.days?.length ? (
+        <div className="glass-card p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
+          <p className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mb-1">
+            <Calendar className="w-3 h-3" /> Agenda Recorrente:
+          </p>
+          <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+            {activeClass.schedule.days.join(', ')} • {activeClass.schedule.startTime} às {activeClass.schedule.endTime}
+          </p>
+        </div>
+      ) : null}
 
       <div className="relative">
         <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1416,7 +1506,14 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
                 )}
               </div>
               <div className="font-manrope">
-                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">{student.name}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">{student.name}</h3>
+                  <div className="flex gap-1">
+                    {student.specialNeeds?.map(need => (
+                      <SpecialNeedBadge key={need} type={need} />
+                    ))}
+                  </div>
+                </div>
                 <p className={`text-[11px] font-extrabold uppercase ${
                   currentStatus === 'absent' ? 'text-red-500' : 
                   currentStatus === 'late' ? 'text-amber-600' : 'text-slate-400'
@@ -2533,7 +2630,14 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
                   </div>
                 )}
                 <div className="flex-1 truncate">
-                  <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate group-hover:text-primary transition-colors">{student.name}</h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate group-hover:text-primary transition-colors">{student.name}</h4>
+                    <div className="flex gap-1">
+                      {student.specialNeeds?.map(need => (
+                        <SpecialNeedBadge key={need} type={need} />
+                      ))}
+                    </div>
+                  </div>
                   {activeModule === 'diagnostics' && student.diagnostic && (
                     <p className="text-[10px] uppercase font-bold text-emerald-500 mt-1 flex items-center gap-1"><Check className="w-3 h-3"/> Avaliado</p>
                   )}
@@ -2569,7 +2673,14 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
               </div>
             )}
             <div>
-              <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100">{activeStudent.name}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100">{activeStudent.name}</h3>
+                <div className="flex gap-1">
+                  {activeStudent.specialNeeds?.map(need => (
+                    <SpecialNeedBadge key={need} type={need} />
+                  ))}
+                </div>
+              </div>
               <p className="text-xs font-bold text-slate-400 font-manrope">{activeClass.name}</p>
             </div>
             {!isStudent && (
@@ -2785,6 +2896,7 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
   const [editingClassName, setEditingClassName] = useState('');
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [editingStudentName, setEditingStudentName] = useState('');
+  const [editingSpecialNeeds, setEditingSpecialNeeds] = useState<string[]>([]);
   const [classToDelete, setClassToDelete] = useState<string | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
 
@@ -2797,7 +2909,11 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
       if (c.id === selectedClassId) {
         return { 
           ...c, 
-          students: c.students.map(s => s.id === editingStudentId ? { ...s, name: newName } : s)
+          students: c.students.map(s => s.id === editingStudentId ? { 
+            ...s, 
+            name: newName,
+            specialNeeds: editingSpecialNeeds 
+          } : s)
         };
       }
       return c;
@@ -2805,6 +2921,7 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
     onUpdateClasses(updatedClasses);
     setEditingStudentId(null);
     setEditingStudentName('');
+    setEditingSpecialNeeds([]);
   };
 
   const handleEditClass = () => {
@@ -3014,33 +3131,69 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
               {currentClass.students.map((s, index) => (
                 <div key={s.id} className="p-3 rounded-xl border border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800">
                   {editingStudentId === s.id ? (
-                    <div className="flex gap-2 w-full">
-                      <input
-                        autoFocus
-                        type="text"
-                        value={editingStudentName}
-                        onChange={(e) => setEditingStudentName(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleEditStudent()}
-                        className="flex-1 bg-slate-50 dark:bg-slate-900 border-2 border-primary px-3 py-2 rounded-lg font-bold outline-none text-sm"
-                      />
-                      <button
-                        onClick={handleEditStudent}
-                        className="bg-primary text-white p-2 rounded-lg hover:bg-primary/90 shrink-0"
-                      >
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => setEditingStudentId(null)}
-                        className="bg-slate-200 dark:bg-slate-700 text-slate-500 p-2 rounded-lg shrink-0"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                    <div className="space-y-4 w-full">
+                      <div className="flex gap-2 w-full">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={editingStudentName}
+                          onChange={(e) => setEditingStudentName(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleEditStudent()}
+                          className="flex-1 bg-slate-50 dark:bg-slate-900 border-2 border-primary px-3 py-2 rounded-lg font-bold outline-none text-sm"
+                        />
+                        <button
+                          onClick={handleEditStudent}
+                          className="bg-primary text-white p-2 rounded-lg hover:bg-primary/90 shrink-0"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => { setEditingStudentId(null); setEditingSpecialNeeds([]); }}
+                          className="bg-slate-200 dark:bg-slate-700 text-slate-500 p-2 rounded-lg shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 px-1 pb-2">
+                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Necessidades Especiais</p>
+                         <div className="flex flex-wrap gap-2">
+                            {['TEA', 'DI', 'DEF', 'OUT'].map(need => (
+                               <button
+                                  key={need}
+                                  onClick={() => {
+                                     if (editingSpecialNeeds.includes(need)) {
+                                        setEditingSpecialNeeds(editingSpecialNeeds.filter(n => n !== need));
+                                     } else {
+                                        setEditingSpecialNeeds([...editingSpecialNeeds, need]);
+                                     }
+                                  }}
+                                  className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all border-2 ${
+                                     editingSpecialNeeds.includes(need) 
+                                     ? 'bg-primary border-primary text-white' 
+                                     : 'border-slate-100 dark:border-slate-800 text-slate-500 hover:border-primary/30'
+                                  }`}
+                               >
+                                  {need === 'TEA' ? '🧩 TEA' : need === 'DI' ? '🧠 DI' : need === 'DEF' ? '♿ DEF' : '✨ OUT'}
+                               </button>
+                            ))}
+                         </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="flex justify-between items-center">
-                      <div className="flex gap-3 items-center truncate">
+                      <div className="flex gap-3 items-center truncate overflow-visible">
                         <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
-                        <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope truncate">{s.name}</span>
+                        <div className="flex flex-col truncate">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope truncate">{s.name}</span>
+                            <div className="flex gap-1">
+                              {s.specialNeeds?.map(need => (
+                                <SpecialNeedBadge key={need} type={need} />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                       <div className="flex items-center ml-2 shrink-0 gap-1">
                         {studentToDelete === s.id ? (
@@ -3062,7 +3215,11 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
                         ) : (
                           <>
                             <button 
-                              onClick={() => { setEditingStudentId(s.id); setEditingStudentName(s.name); }}
+                              onClick={() => { 
+                                setEditingStudentId(s.id); 
+                                setEditingStudentName(s.name); 
+                                setEditingSpecialNeeds(s.specialNeeds || []);
+                              }}
                               className="text-slate-400 hover:text-primary p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
                             >
                               <Edit2 className="w-4 h-4" />
@@ -3295,22 +3452,37 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData }: { app
         provider.addScope('https://www.googleapis.com/auth/calendar.events');
         provider.addScope('https://www.googleapis.com/auth/tasks.readonly');
         provider.addScope('https://www.googleapis.com/auth/tasks');
-        provider.setCustomParameters({ prompt: 'consent' });
+        provider.setCustomParameters({ prompt: 'select_account' });
         
-        const result = await signInWithPopup(auth, provider);
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const token = credential?.accessToken;
-        
-        if (token) {
-           localStorage.setItem('google_access_token', token);
-           window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+        try {
+          const result = await signInWithPopup(auth, provider);
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          const token = credential?.accessToken;
+          
+          if (token) {
+             localStorage.setItem('google_access_token', token);
+             window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+          }
+        } catch (error: any) {
+          if (error.code === 'auth/internal-error') {
+            console.error("Firebase Internal Error during login. Checking authorized domains or pop-up blockers is recommended.", error);
+            // This error is generic. Sometimes it helps to retry or inform the user about pop-up blockers.
+            if (typeof triggerNotification === 'function') {
+              triggerNotification('Erro de autenticação (Internal Error). Verifique se seu navegador está bloqueando pop-ups.', 'critical');
+            }
+          }
+          throw error; // Re-throw to be caught by the outer catch
         }
       }
     } catch (e: any) {
       if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
         console.log("Login cancelado pelo usuário.");
       } else {
-        console.error(e);
+        console.error("Auth error:", e);
+        // Explicitly check for internal error here too if re-thrown
+        if (e?.code === 'auth/internal-error') {
+           // We already showed a notification if possible, but let's be sure
+        }
       }
       setIsGoogleLoading(false);
     }
@@ -3336,17 +3508,26 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData }: { app
       } else {
         const provider = new GoogleAuthProvider();
         provider.addScope('email');
-        const result = await signInWithPopup(auth, provider);
-        if (result.user) {
-          setRecoveredPassword(appData.password || '');
+        provider.setCustomParameters({ prompt: 'select_account' });
+        
+        try {
+          const result = await signInWithPopup(auth, provider);
+          if (result.user) {
+            setRecoveredPassword(appData.password || '');
+          }
+        } catch (error: any) {
+          if (error.code === 'auth/internal-error') {
+            setRecoveryError('Erro interno do Firebase. Tente desativar bloqueadores de pop-up.');
+          }
+          throw error;
         }
       }
     } catch (e: any) {
       if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
         console.log("Recuperação cancelada pelo usuário.");
       } else {
-        console.error(e);
-        setRecoveryError('Erro ao autenticar com o Google.');
+        console.error("Recovery Auth error:", e);
+        if (!recoveryError) setRecoveryError('Erro ao autenticar com o Google.');
       }
     }
   };
@@ -3970,19 +4151,27 @@ export default function App() {
           provider.addScope('https://www.googleapis.com/auth/calendar.events');
           provider.addScope('https://www.googleapis.com/auth/tasks.readonly');
           provider.addScope('https://www.googleapis.com/auth/tasks');
-          provider.setCustomParameters({ prompt: 'consent' });
+          provider.setCustomParameters({ prompt: 'select_account' });
           
-          const result = await signInWithPopup(auth, provider);
-          const credential = GoogleAuthProvider.credentialFromResult(result);
-          token = credential?.accessToken || null;
-          
-          if (token) {
-            localStorage.setItem('google_access_token', token);
-            setAccessToken(token);
-            window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
-          } else {
-            if (!silent) setIsSyncingGoogle(false);
-            return;
+          try {
+            const result = await signInWithPopup(auth, provider);
+            const credential = GoogleAuthProvider.credentialFromResult(result);
+            token = credential?.accessToken || null;
+            
+            if (token) {
+              localStorage.setItem('google_access_token', token);
+              setAccessToken(token);
+              window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+            } else {
+              if (!silent) setIsSyncingGoogle(false);
+              return;
+            }
+          } catch (error: any) {
+            if (error.code === 'auth/internal-error') {
+               console.error("Firebase Internal Error during sync. Checking authorized domains or pop-up blockers is recommended.", error);
+               if (!silent) triggerNotification('Erro de autenticação (Internal Error). Verifique bloqueadores de pop-up.', 'critical');
+            }
+            throw error;
           }
         }
       }

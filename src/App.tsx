@@ -3443,7 +3443,15 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
   );
 };
 
-const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSyncingGoogle }: { appData: AppState, onUpdateField: (field: string, value: string) => void, onLogout: () => void, onSyncGoogle: () => void, isSyncingGoogle?: boolean }) => {
+const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSyncingGoogle, onInstall, canInstall }: { 
+  appData: AppState, 
+  onUpdateField: (field: string, value: string) => void, 
+  onLogout: () => void, 
+  onSyncGoogle: () => void, 
+  isSyncingGoogle?: boolean,
+  onInstall?: () => void,
+  canInstall?: boolean
+}) => {
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -3516,7 +3524,28 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
       </div>
 
       <div className="glass-card p-6 rounded-3xl">
-        <h3 className="text-sm font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Integrações</h3>
+        <h3 className="text-sm font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">App e Integrações</h3>
+        
+        {canInstall && (
+          <div className="mb-6 p-4 rounded-2xl bg-primary/5 border border-primary/20 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-primary/10 text-primary rounded-xl">
+                <GripVertical className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="font-bold text-sm text-slate-800 dark:text-slate-100">Instalar App</p>
+                <p className="text-[10px] text-slate-500 font-medium">Melhore sua experiência</p>
+              </div>
+            </div>
+            <button 
+              onClick={onInstall}
+              className="bg-primary text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+            >
+              Instalar
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-full flex items-center justify-center w-10 h-10 ${appData.googleSynced ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400'}`}>
@@ -3867,6 +3896,30 @@ import { addToSyncQueue, processSyncQueue } from './sync/syncManager';
 
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>('studentsHub');
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) {
+      triggerNotification('O instalador não está disponível. Tente usar o menu do navegador "Instalar Aplicativo".', 'info');
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+      triggerNotification('Instalação iniciada!', 'info');
+    }
+  };
+
   const [appData, setAppData] = useState<AppState | null>(() => {
     try {
       const saved = localStorage.getItem('horizonte_data');
@@ -4671,6 +4724,8 @@ export default function App() {
         onLogout={() => setIsLogged(false)}
         onSyncGoogle={handleGoogleSync}
         isSyncingGoogle={isSyncingGoogle}
+        onInstall={handleInstallApp}
+        canInstall={!!deferredPrompt}
       />;
       default: return null;
     }

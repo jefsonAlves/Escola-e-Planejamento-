@@ -12,6 +12,9 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        devOptions: {
+          enabled: true
+        },
         manifest: {
           name: "Colégio Horizonte 2026",
           short_name: "Horizonte",
@@ -23,16 +26,16 @@ export default defineConfig(({mode}) => {
           orientation: "portrait",
           icons: [
             {
-              src: "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/school/default/192px.svg",
-              sizes: "192x192",
-              type: "image/svg+xml",
-              purpose: "any maskable"
+              "src": "https://cdn-icons-png.flaticon.com/512/2997/2997315.png",
+              "sizes": "512x512",
+              "type": "image/png",
+              "purpose": "any maskable"
             },
             {
-              src: "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsoutlined/school/default/512px.svg",
-              sizes: "512x512",
-              type: "image/svg+xml",
-              purpose: "any maskable"
+              "src": "https://cdn-icons-png.flaticon.com/192/2997/2997315.png",
+              "sizes": "192x192",
+              "type": "image/png",
+              "purpose": "any maskable"
             }
           ]
         }

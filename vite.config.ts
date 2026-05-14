@@ -12,7 +12,6 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         manifest: {
           name: 'Colégio Horizonte',
           short_name: 'Horizonte',
@@ -38,6 +37,9 @@ export default defineConfig(({mode}) => {
               purpose: 'any maskable'
             }
           ]
+        },
+        devOptions: {
+          enabled: true
         }
       })
     ],

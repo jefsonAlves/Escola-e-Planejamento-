@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
@@ -643,7 +643,7 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin, onShowNotification }:
                     <Reorder.Item key={s.id} value={s} className="flex justify-between items-center p-3 rounded-xl border border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800 cursor-grab active:cursor-grabbing">
                       <div className="flex gap-3 items-center">
                         <GripVertical className="w-5 h-5 text-slate-300" />
-                        <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope">{s.name}</span>
+                        <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope">{s.name.toUpperCase()}</span>
                       </div>
                     </Reorder.Item>
                   ))}
@@ -985,6 +985,7 @@ const QuickGradeDialog = ({
 
     if (updatedCount === 0) {
       onShowNotification("Nenhuma alteração de nota.");
+      onClose();
       return;
     }
 
@@ -2569,7 +2570,6 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
     setEvalMethod('');
     setEvalPoints('');
     onShowNotification('Avaliação adicionada!');
-    setActiveStudentId(null);
   };
 
   const calculateTotalPoints = (evals?: StudentEvaluation[], filter?: string) => {
@@ -3668,8 +3668,22 @@ const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateFi
     onUpdateField('adminNotices', currentNotices.filter(n => n.id !== id));
   };
 
+  const isJefsonEmail = auth.currentUser?.email === 'jefson.ti@gmail.com' || auth.currentUser?.email === 'jefson.s.a7@gmail.com';
+  const isJefsonCpf = (appData.cpf || "").replace(/\D/g, "") === '00995845301';
+  const isSuperAdmin = isJefsonEmail || isJefsonCpf;
+
   return (
     <div className="space-y-6 pb-24">
+      {isSuperAdmin && (
+        <div className="bg-primary/10 border border-primary/20 p-4 rounded-2xl mb-4 flex items-center gap-3">
+          <ShieldCheck className="w-6 h-6 text-primary" />
+          <div>
+            <p className="text-xs font-black text-primary uppercase tracking-tighter">Super Admin Ativado</p>
+            <p className="text-[10px] text-slate-500 font-bold">Acesso total concedido a Jefson</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
         {(['access', 'billing', 'notices'] as const).map((tab) => (
           <button
@@ -3681,7 +3695,7 @@ const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateFi
                 : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-100 dark:border-slate-700'
             }`}
           >
-            {tab === 'access' ? 'Controle de Acesso' : tab === 'billing' ? 'Cobrança' : 'Avisos'}
+            {tab === 'access' ? 'Controle de Acesso' : tab === 'billing' ? 'Cobrança e Ativação' : 'Avisos'}
           </button>
         ))}
       </div>
@@ -3690,24 +3704,25 @@ const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateFi
         <div className="glass-card p-6 rounded-3xl space-y-4">
           <div className="flex items-center gap-2 mb-2">
             <Lock className="w-5 h-5 text-primary" />
-            <h3 className="font-bold text-slate-800 dark:text-slate-100">Usuários Ativos</h3>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">Status do Sistema</h3>
           </div>
-          <p className="text-sm text-slate-500 font-manrope">Módulo de supervisão de segurança e sessões ativas.</p>
+          <div className="grid grid-cols-2 gap-3">
+             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Versão do App</p>
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">v2.4.0-pro</p>
+             </div>
+             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Base de Dados</p>
+                <p className="text-sm font-bold text-green-500">Online</p>
+             </div>
+          </div>
           <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
              <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-xs font-bold text-primary">Jefson (Admin Principal)</span>
-                  <p className="text-[10px] text-slate-400">jefson.ti@gmail.com • Session: Online</p>
+                   <span className="text-xs font-bold text-primary">Jefson (Admin Principal)</span>
+                   <p className="text-[10px] text-slate-400">jefson.s.a7@gmail.com • Root Access</p>
                 </div>
-                <ShieldAlert className="w-4 h-4 text-primary" />
-             </div>
-          </div>
-          <div className="space-y-2 mt-4">
-             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Logs Recentes</p>
-             <div className="text-[10px] text-slate-500 font-mono space-y-1 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
-                <p>[{new Date().toLocaleTimeString()}] Auth attempt: 13.05.2026 - Success</p>
-                <p>[{new Date().toLocaleTimeString()}] Admin panel accessed by Jefson</p>
-                <p>[{new Date().toLocaleTimeString()}] Access Control: User list updated</p>
+                <ShieldCheck className="w-4 h-4 text-primary" />
              </div>
           </div>
         </div>
@@ -3717,32 +3732,42 @@ const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateFi
         <div className="glass-card p-6 rounded-3xl space-y-4">
           <div className="flex items-center gap-2 mb-2">
             <CreditCard className="w-5 h-5 text-primary" />
-            <h3 className="font-bold text-slate-800 dark:text-slate-100">Gestão de Cobrança</h3>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">Controle de Ativação</h3>
           </div>
-          <div className="grid grid-cols-3 gap-2 mb-4">
+          
+          <div className="p-4 bg-blue-50 dark:bg-blue-500/10 rounded-2xl border border-blue-100 dark:border-blue-900/30">
+            <h4 className="text-xs font-bold text-blue-800 dark:text-blue-300 mb-1">Status de Licença de Uso</h4>
+            <p className="text-[10px] text-blue-600 dark:text-blue-400">Controle aqui se o app está liberado para uso ou bloqueado por falta de pagamento.</p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
             {(['active', 'overdue', 'trial'] as const).map(status => (
               <button 
                 key={status}
                 onClick={() => onUpdateField('billingStatus', status)}
                 className={`p-3 rounded-xl border text-[10px] font-bold uppercase transition-all ${appData.billingStatus === status ? 'bg-primary/10 border-primary text-primary shadow-sm' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}
               >
-                {status === 'active' ? 'Ativo' : status === 'overdue' ? 'Atraso' : 'Teste'}
+                {status === 'active' ? 'Liberado' : status === 'overdue' ? 'Bloqueado' : 'Teste'}
               </button>
             ))}
           </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-primary uppercase ml-1">Vencimento da Licença</label>
-            <input 
-              type="date"
-              value={appData.billingExpiry || ''}
-              onChange={(e) => onUpdateField('billingExpiry', e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none text-sm"
-            />
+
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-primary uppercase ml-1">Vencimento do Plano</label>
+              <input 
+                type="date"
+                value={appData.billingExpiry || ''}
+                onChange={(e) => onUpdateField('billingExpiry', e.target.value)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl outline-none focus:border-primary text-sm font-bold transition-colors"
+              />
+            </div>
           </div>
+
           <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-200 dark:border-amber-900/30 flex items-start gap-3 mt-4">
              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
              <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
-               Aviso: Alterar o status de cobrança afeta o acesso imediato de todos os usuários vinculados.
+                Aviso: Alterar o status de cobrança afeta o acesso imediato de todos os usuários vinculados.
              </p>
           </div>
         </div>
@@ -4106,21 +4131,6 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
             <button onClick={onSwitchToRegister} className="w-full mt-4 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors text-center">
               Não tem conta? Cadastre-se
             </button>
-            
-            {onWipeData && (
-              <div className="mt-8 flex flex-col items-center">
-                {confirmWipe ? (
-                  <div className="flex gap-2">
-                    <button onClick={() => setConfirmWipe(false)} className="px-3 py-1 text-xs font-bold bg-slate-200 text-slate-500 rounded-lg">Cancelar</button>
-                    <button onClick={onWipeData} className="px-3 py-1 text-xs font-bold bg-red-500 text-white rounded-lg">Sim, apagar tudo</button>
-                  </div>
-                ) : (
-                  <button onClick={() => setConfirmWipe(true)} className="w-full text-[10px] font-bold text-red-400 hover:text-red-600 transition-colors text-center uppercase tracking-widest flex items-center justify-center gap-1">
-                    Limpar todos os dados locais
-                  </button>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </motion.div>
@@ -5069,6 +5079,34 @@ export default function App() {
         >
           Voltar para o login
         </button>
+      </div>
+    );
+  }
+
+  if (appData?.billingStatus === 'overdue' && !isAdminUser()) {
+    return (
+      <div className="min-h-screen bg-white dark:bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-24 h-24 bg-red-100 dark:bg-red-500/10 rounded-full flex items-center justify-center mb-6">
+           <AlertTriangle className="w-12 h-12 text-red-500 shadow-sm" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-800 dark:text-slate-100 mb-2 uppercase tracking-tight">Aplicativo Suspenso</h2>
+        <p className="text-slate-500 dark:text-slate-400 font-manrope text-sm leading-relaxed mb-8 max-w-xs">
+          O acesso ao Colégio Horizonte foi temporariamente suspenso devido a pendências na ativação do plano. Entre em contato com o suporte para regularizar.
+        </p>
+        <div className="w-full space-y-3">
+          <a href="https://wa.me/5511999999999" target="_blank" rel="noopener noreferrer" className="block w-full bg-primary text-white py-4 rounded-xl font-bold shadow-lg shadow-primary/20 active:scale-95 transition-all uppercase text-xs tracking-widest">
+            Falar com Ativação
+          </a>
+          <button 
+            onClick={() => { setIsLogged(false); auth.signOut(); }}
+            className="w-full text-slate-400 font-bold py-2 text-xs uppercase tracking-widest hover:text-primary transition-colors"
+          >
+            Sair da Conta
+          </button>
+        </div>
+        <div className="mt-12 pt-6 border-t border-slate-100 dark:border-slate-800 w-full">
+           <p className="text-[10px] text-slate-400 font-bold uppercase">ID do Cliente: {appData.schoolName || 'N/A'}</p>
+        </div>
       </div>
     );
   }

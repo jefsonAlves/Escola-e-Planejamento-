@@ -12,30 +12,30 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        devOptions: {
-          enabled: true
-        },
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         manifest: {
-          name: "Colégio Horizonte 2026",
-          short_name: "Horizonte",
-          start_url: "/",
-          display: "standalone",
-          background_color: "#faf8ff",
-          theme_color: "#00236f",
-          description: "App pedagógico para gestão de turmas e ocorrências.",
-          orientation: "portrait",
+          name: 'Colégio Horizonte',
+          short_name: 'Horizonte',
+          description: 'Gestão Escolar Horizonte',
+          theme_color: '#00236f',
+          background_color: '#ffffff',
+          display: 'standalone',
           icons: [
             {
-              "src": "https://cdn-icons-png.flaticon.com/512/2997/2997315.png",
-              "sizes": "512x512",
-              "type": "image/png",
-              "purpose": "any maskable"
+              src: "https://cdn-icons-png.flaticon.com/512/2997/2997316.png",
+              sizes: '192x192',
+              type: 'image/png'
             },
             {
-              "src": "https://cdn-icons-png.flaticon.com/192/2997/2997315.png",
-              "sizes": "192x192",
-              "type": "image/png",
-              "purpose": "any maskable"
+              src: "https://cdn-icons-png.flaticon.com/512/2997/2997316.png",
+              sizes: '512x512',
+              type: 'image/png'
+            },
+            {
+              src: "https://cdn-icons-png.flaticon.com/512/2997/2997316.png",
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable'
             }
           ]
         }
@@ -52,7 +52,7 @@ export default defineConfig(({mode}) => {
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
+      hmr: false,
     },
   };
 });

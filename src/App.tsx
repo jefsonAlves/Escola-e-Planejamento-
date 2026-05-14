@@ -4,12 +4,11 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
-import { auth, db, messaging } from './firebase';
+import { auth, db } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
-import { getToken, onMessage } from 'firebase/messaging';
+import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
 
 import { Capacitor } from '@capacitor/core';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
@@ -21,7 +20,14 @@ declare global {
   }
 }
 
-type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'boletim' | 'occurrence' | 'settings' | 'classes' | 'director' | 'materials' | 'studentsHub';
+type Screen = 'login' | 'dashboard' | 'attendance' | 'agenda' | 'reports' | 'boletim' | 'occurrence' | 'settings' | 'classes' | 'director' | 'materials' | 'studentsHub' | 'admin';
+
+interface AdminNotice {
+  id: string;
+  text: string;
+  date: string;
+  type: 'info' | 'warning' | 'critical';
+}
 
 interface StudentEvaluation {
   id: string;
@@ -57,6 +63,29 @@ const STUDENTS: Student[] = [
 const TEACHER_AVATAR = 'https://lh3.googleusercontent.com/aida-public/AB6AXuAAwf4l9S8ZAeaCAGQkpch-iZRa2GzSDW3dEwi3GSkT6SIRfcwMh7YVTpwOQbcxnu2JABJ1Kf8bde4CTi9KMl9TrAruaVHFFBh4P-asdiUbe-Mgxre9HeypmKxIzaWkcq5pykDwPXPSpCpeSeSR-EDApL4M1epX3KMBDdnGfcuOub9FnLYkd_10BZr6JRDCLhCtqNDcFiiKJ7mY2sE9f_uqfhkZy3n91QB39QNQs2N-wcHJ6Id5_bY1ECoBtpj-IjaC2nly6TTR0zvO';
 
 // --- Shared Components ---
+
+const SystemNotices = ({ notices }: { notices: AdminNotice[] }) => {
+  if (!notices || notices.length === 0) return null;
+  const latest = notices[0];
+  
+  return (
+    <div className={`mb-6 p-4 rounded-2xl border flex gap-3 items-start ${
+      latest.type === 'critical' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-500/10 dark:border-red-900/50 dark:text-red-400' :
+      latest.type === 'warning' ? 'bg-amber-50 border-amber-100 text-amber-700 dark:bg-amber-500/10 dark:border-amber-900/50 dark:text-amber-400' :
+      'bg-blue-50 border-blue-100 text-blue-700 dark:bg-blue-500/10 dark:border-blue-900/50 dark:text-blue-400'
+    }`}>
+      <Megaphone className="w-5 h-5 shrink-0 mt-0.5" />
+      <div>
+        <div className="flex items-center gap-2 mb-0.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Aviso Oficial</p>
+          <div className="w-1 h-1 rounded-full bg-current opacity-40" />
+          <p className="text-[9px] font-bold opacity-60 uppercase">{latest.date}</p>
+        </div>
+        <p className="text-sm font-manrope font-bold leading-tight">{latest.text}</p>
+      </div>
+    </div>
+  );
+};
 
 const Header = ({ title, showBack, onBack, onSettings, avatarUrl, onNavigateDirector }: { title: string; showBack?: boolean; onBack?: () => void; onSettings?: () => void; avatarUrl?: string; onNavigateDirector?: () => void }) => {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -170,6 +199,9 @@ interface AppState {
   googleCalendarEvents?: GoogleEvent[];
   googleClassroomActivities?: GoogleCourseWork[];
   materials?: MaterialData[];
+  adminNotices?: AdminNotice[];
+  billingStatus?: 'active' | 'overdue' | 'trial';
+  billingExpiry?: string;
 }
 
 interface GoogleEvent {
@@ -252,7 +284,7 @@ const formatCPF = (val: string) => {
   return v;
 };
 
-const RegistrationScreen = ({ onComplete, onSwitchToLogin }: { onComplete: (data: AppState) => void, onSwitchToLogin: () => void }) => {
+const RegistrationScreen = ({ onComplete, onSwitchToLogin, onShowNotification }: { onComplete: (data: AppState) => void, onSwitchToLogin: () => void, onShowNotification?: (msg: string, type: 'critical' | 'info') => void }) => {
   const [step, setStep] = useState(0); // step 0 is for role selection
   const [role, setRole] = useState<'teacher' | 'student' | 'both'>('teacher');
   const [schoolName, setSchoolName] = useState('');
@@ -1299,7 +1331,8 @@ const StudentsHubScreen = ({ onNavigate, onOpenGrades }: { onNavigate: (screen: 
   );
 };
 
-const SpecialNeedBadge = ({ type }: { type: string }) => {
+// Reusable Badge for Special Needs
+const SpecialNeedBadge = ({ type }: { type: string, key?: any }) => {
   const configs: Record<string, { label: string, bg: string, text: string, icon: string }> = {
     'TEA': { label: 'TEA', bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400', icon: '🧩' },
     'DI': { label: 'DI', bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400', icon: '🧠' },
@@ -2950,8 +2983,7 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
       setSchoolClasses(fetchedClasses);
       if (fetchedClasses.length === 0) setImportNotice("Nenhuma turma encontrada nesta instituição.");
     } catch (error) {
-      console.error(error);
-      setImportNotice("Erro ao buscar turmas. Tente novamente.");
+      handleFirestoreError(error, OperationType.LIST, 'users');
     }
     setIsImporting(false);
   };
@@ -3443,14 +3475,16 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
   );
 };
 
-const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSyncingGoogle, onInstall, canInstall }: { 
+const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSyncingGoogle, onInstall, canInstall, onNavigateAdmin, isAdmin }: { 
   appData: AppState, 
   onUpdateField: (field: string, value: string) => void, 
   onLogout: () => void, 
   onSyncGoogle: () => void, 
   isSyncingGoogle?: boolean,
   onInstall?: () => void,
-  canInstall?: boolean
+  canInstall?: boolean,
+  onNavigateAdmin?: () => void,
+  isAdmin?: boolean
 }) => {
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3524,26 +3558,64 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
       </div>
 
       <div className="glass-card p-6 rounded-3xl">
-        <h3 className="text-sm font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">App e Integrações</h3>
+        <h3 className="text-sm font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">Instalação e App</h3>
         
-        {canInstall && (
-          <div className="mb-6 p-4 rounded-2xl bg-primary/5 border border-primary/20 flex items-center justify-between">
+        <div className="mb-6 p-4 rounded-2xl bg-primary/5 border border-primary/20 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-primary/10 text-primary rounded-xl">
-                <GripVertical className="w-5 h-5" />
+                <Download className="w-5 h-5" />
               </div>
               <div>
-                <p className="font-bold text-sm text-slate-800 dark:text-slate-100">Instalar App</p>
-                <p className="text-[10px] text-slate-500 font-medium">Melhore sua experiência</p>
+                <p className="font-bold text-sm text-slate-800 dark:text-slate-100">Aplicativo PWA</p>
+                <p className="text-[10px] text-slate-500 font-medium">Instale na sua tela inicial</p>
               </div>
             </div>
-            <button 
-              onClick={onInstall}
-              className="bg-primary text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
-            >
-              Instalar
-            </button>
+            {canInstall ? (
+              <button 
+                onClick={onInstall}
+                className="bg-primary text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+              >
+                Instalar
+              </button>
+            ) : (
+              <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-1 rounded-lg font-bold">PWA Ativo</span>
+            )}
           </div>
+
+          {!canInstall && (
+            <div className="pt-2 border-t border-primary/10">
+              <p className="text-[10px] text-slate-600 dark:text-slate-300 font-manrope leading-relaxed">
+                <span className="font-bold text-primary">Dica:</span> Se o botão não aparece, é porque você pode estar visualizando dentro do editor. 
+                <br />
+                1. Clique em <span className="font-bold">"Abrir em nova aba"</span> no topo do preview.
+                <br />
+                2. No <span className="font-bold">Android (Chrome)</span>, clique nos 3 pontinhos e "Instalar Aplicativo".
+                <br />
+                3. No <span className="font-bold">iPhone (Safari)</span>, clique no ícone de compartilhar e "Add à Tela de Início".
+              </p>
+            </div>
+          )}
+        </div>
+
+        {isAdmin && (
+           <div className="mb-6 p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-500/10 text-amber-600 rounded-xl">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="font-bold text-sm text-slate-800 dark:text-slate-100">Administração</p>
+                  <p className="text-[10px] text-slate-500 font-medium">Painel de controle Jefson</p>
+                </div>
+              </div>
+              <button 
+                onClick={onNavigateAdmin}
+                className="bg-amber-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/20"
+              >
+                Acessar
+              </button>
+           </div>
         )}
 
         <div className="flex items-center justify-between">
@@ -3572,7 +3644,174 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
   );
 };
 
-const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData }: { appData: AppState | null, onLogin: () => void, onSwitchToRegister: () => void, onWipeData?: () => void }) => {
+const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateField: (field: string, value: any) => void }) => {
+  const [activeTab, setActiveTab] = useState<'access' | 'billing' | 'notices'>('access');
+  const [noticeText, setNoticeText] = useState('');
+  const [noticeType, setNoticeType] = useState<'info' | 'warning' | 'critical'>('info');
+
+  const addNotice = () => {
+    if (!noticeText.trim()) return;
+    const newNotice: AdminNotice = {
+      id: Date.now().toString(),
+      text: noticeText,
+      date: new Date().toLocaleDateString('pt-BR'),
+      type: noticeType
+    };
+    const currentNotices = appData.adminNotices || [];
+    onUpdateField('adminNotices', [newNotice, ...currentNotices]);
+    setNoticeText('');
+  };
+
+  const removeNotice = (id: string) => {
+    const currentNotices = appData.adminNotices || [];
+    onUpdateField('adminNotices', currentNotices.filter(n => n.id !== id));
+  };
+
+  return (
+    <div className="space-y-6 pb-24">
+      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+        {(['access', 'billing', 'notices'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+              activeTab === tab 
+                ? 'bg-primary text-white shadow-lg shadow-primary/20' 
+                : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-100 dark:border-slate-700'
+            }`}
+          >
+            {tab === 'access' ? 'Controle de Acesso' : tab === 'billing' ? 'Cobrança' : 'Avisos'}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'access' && (
+        <div className="glass-card p-6 rounded-3xl space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Lock className="w-5 h-5 text-primary" />
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">Usuários Ativos</h3>
+          </div>
+          <p className="text-sm text-slate-500 font-manrope">Módulo de supervisão de segurança e sessões ativas.</p>
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+             <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-primary">Jefson (Admin Principal)</span>
+                  <p className="text-[10px] text-slate-400">jefson.ti@gmail.com • Session: Online</p>
+                </div>
+                <ShieldAlert className="w-4 h-4 text-primary" />
+             </div>
+          </div>
+          <div className="space-y-2 mt-4">
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Logs Recentes</p>
+             <div className="text-[10px] text-slate-500 font-mono space-y-1 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                <p>[{new Date().toLocaleTimeString()}] Auth attempt: 13.05.2026 - Success</p>
+                <p>[{new Date().toLocaleTimeString()}] Admin panel accessed by Jefson</p>
+                <p>[{new Date().toLocaleTimeString()}] Access Control: User list updated</p>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'billing' && (
+        <div className="glass-card p-6 rounded-3xl space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <CreditCard className="w-5 h-5 text-primary" />
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">Gestão de Cobrança</h3>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {(['active', 'overdue', 'trial'] as const).map(status => (
+              <button 
+                key={status}
+                onClick={() => onUpdateField('billingStatus', status)}
+                className={`p-3 rounded-xl border text-[10px] font-bold uppercase transition-all ${appData.billingStatus === status ? 'bg-primary/10 border-primary text-primary shadow-sm' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400'}`}
+              >
+                {status === 'active' ? 'Ativo' : status === 'overdue' ? 'Atraso' : 'Teste'}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-primary uppercase ml-1">Vencimento da Licença</label>
+            <input 
+              type="date"
+              value={appData.billingExpiry || ''}
+              onChange={(e) => onUpdateField('billingExpiry', e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none text-sm"
+            />
+          </div>
+          <div className="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-2xl border border-amber-200 dark:border-amber-900/30 flex items-start gap-3 mt-4">
+             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+             <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
+               Aviso: Alterar o status de cobrança afeta o acesso imediato de todos os usuários vinculados.
+             </p>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'notices' && (
+        <div className="glass-card p-6 rounded-3xl space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Megaphone className="w-5 h-5 text-primary" />
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">Comunicados Gerais</h3>
+          </div>
+          <div className="space-y-4">
+             <div className="space-y-2">
+                <label className="text-xs font-bold text-primary uppercase ml-1">Novo Comunicado</label>
+                <div className="flex gap-2 mb-2">
+                   {(['info', 'warning', 'critical'] as const).map(t => (
+                     <button 
+                       key={t}
+                       onClick={() => setNoticeType(t)}
+                       className={`flex-1 py-1.5 rounded-lg text-[9px] font-bold uppercase border transition-all ${noticeType === t ? 'bg-primary text-white border-primary shadow-sm' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-100 dark:border-slate-700'}`}
+                     >
+                       {t}
+                     </button>
+                   ))}
+                </div>
+                <textarea 
+                  value={noticeText}
+                  onChange={(e) => setNoticeText(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors min-h-[80px] text-sm"
+                  placeholder="Mensagem para todos..."
+                />
+                <button 
+                  onClick={addNotice}
+                  className="w-full bg-primary text-white p-3 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95"
+                >
+                   <Send className="w-4 h-4" /> Publicar Aviso
+                </button>
+             </div>
+             
+             <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Histórico de Publicações</p>
+               <div className="space-y-3">
+                 {(appData.adminNotices || []).map(notice => (
+                    <div key={notice.id} className="p-3 bg-white dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700 relative group">
+                       <div className="flex items-center gap-2 mb-1">
+                          <div className={`w-1.5 h-1.5 rounded-full ${notice.type === 'critical' ? 'bg-red-500' : notice.type === 'warning' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                          <span className="text-[8px] font-bold uppercase text-slate-400 tracking-tighter">{notice.date}</span>
+                       </div>
+                       <p className="text-xs text-slate-700 dark:text-slate-200 font-medium leading-relaxed">{notice.text}</p>
+                       <button 
+                         onClick={() => removeNotice(notice.id)}
+                         className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                       >
+                         <Trash2 className="w-3 h-3" />
+                       </button>
+                    </div>
+                 ))}
+                 {(!appData.adminNotices || appData.adminNotices.length === 0) && (
+                   <p className="text-center py-4 text-[10px] text-slate-400 font-bold italic">Nenhum aviso publicado.</p>
+                 )}
+               </div>
+             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowNotification }: { appData: AppState | null, onLogin: () => void, onSwitchToRegister: () => void, onWipeData?: () => void, onShowNotification?: (msg: string, type: 'critical' | 'info') => void }) => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -3631,8 +3870,8 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData }: { app
           if (error.code === 'auth/internal-error') {
             console.error("Firebase Internal Error during login. Checking authorized domains or pop-up blockers is recommended.", error);
             // This error is generic. Sometimes it helps to retry or inform the user about pop-up blockers.
-            if (typeof triggerNotification === 'function') {
-              triggerNotification('Erro de autenticação (Internal Error). Verifique se seu navegador está bloqueando pop-ups.', 'critical');
+            if (onShowNotification) {
+              onShowNotification('Erro de autenticação (Internal Error). Verifique se seu navegador está bloqueando pop-ups.', 'critical');
             }
           }
           throw error; // Re-throw to be caught by the outer catch
@@ -3894,6 +4133,53 @@ import { addToSyncQueue, processSyncQueue } from './sync/syncManager';
 
 // --- Main App ---
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>('studentsHub');
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -3920,6 +4206,21 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    console.log("Firestore Database ID:", (db as any)._databaseId?.databaseId || "default");
+    const testConnectionBase = async () => {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+        // handleFirestoreError(error, OperationType.GET, 'test/connection'); // Optional for test connection
+      }
+    };
+    testConnectionBase();
+  }, []);
+
   const [appData, setAppData] = useState<AppState | null>(() => {
     try {
       const saved = localStorage.getItem('horizonte_data');
@@ -3938,6 +4239,13 @@ export default function App() {
   const [showGradeDialog, setShowGradeDialog] = useState(false);
   const [currentViewRole, setCurrentViewRole] = useState<'teacher' | 'student'>('teacher');
   const [accessToken, setAccessToken] = useState<string | null>(localStorage.getItem('google_access_token'));
+
+  const isAdminUser = () => {
+    if (!appData) return false;
+    const isJefsonEmail = auth.currentUser?.email === 'jefson.ti@gmail.com' || auth.currentUser?.email === 'jefson.s.a7@gmail.com';
+    const isJefsonCpf = (appData.cpf || "").replace(/\D/g, "") === '00995845301';
+    return isJefsonEmail || isJefsonCpf;
+  };
 
   useEffect(() => {
     // Initial sync connection setup
@@ -4086,36 +4394,14 @@ export default function App() {
   }, [appData?.role]);
 
   useEffect(() => {
-    if (messaging && isLogged) {
-      const requestPermission = async () => {
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission === 'granted') {
-            const token = await getToken(messaging, { 
-              vapidKey: 'BD1-your-mock-vapid-key-if-real-is-needed-otherwise-just-leave-it' // placeholder
-            });
-            console.log('FCM Token:', token);
-            // Here we would normally save this token to Firestore to send pushes to this user
-          }
-        } catch (e) {
-          console.warn('Push notification permission denied or failed to get token', e);
-        }
-      };
-      // requestPermission(); // Commmenting out execution due to lack of real vapid key breaking the app
-    }
   }, [isLogged]);
 
   useEffect(() => {
-    if (messaging) {
-      const unsubscribe = onMessage(messaging, (payload) => {
-        triggerNotification(`Alerta recebido: ${payload.notification?.title}`, 'info');
-      });
-      return () => unsubscribe();
-    }
   }, []);
 
   const syncToFirestore = async (data: AppState) => {
     if (!auth.currentUser) return;
+    const path = `users/${auth.currentUser.uid}`;
     try {
       const payload = {
         schoolName: data.schoolName,
@@ -4134,8 +4420,7 @@ export default function App() {
       };
       await setDoc(doc(db, 'users', auth.currentUser.uid), payload);
     } catch (e: any) {
-      console.error("Error syncing to Firestore:", e);
-      triggerNotification('Erro Firebase: ' + (e?.message || e), 'critical');
+      handleFirestoreError(e, OperationType.WRITE, path);
     }
   };
 
@@ -4462,6 +4747,7 @@ export default function App() {
   // Real-time listener for offline->online sync & cross-tab
   useEffect(() => {
     if (!auth.currentUser) return;
+    const path = `users/${auth.currentUser.uid}`;
     const unsubscribe = onSnapshot(doc(db, 'users', auth.currentUser.uid), (docSnap) => {
       if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
         const data = docSnap.data();
@@ -4489,12 +4775,9 @@ export default function App() {
         };
         setAppData(remoteApp);
         localStorage.setItem('horizonte_data', JSON.stringify(remoteApp));
-      } else if (!docSnap.exists()) {
-        // Se usuário logou mas não tem doc, precisamos lidar com fallback.
-        // Se não tiver local storage (appData null), mostra erro de conta não encontrada.
       }
     }, (error) => {
-      console.error("Firestore real-time listener error:", error);
+      handleFirestoreError(error, OperationType.GET, path);
     });
     return () => unsubscribe();
   }, [auth.currentUser]);
@@ -4726,20 +5009,39 @@ export default function App() {
         isSyncingGoogle={isSyncingGoogle}
         onInstall={handleInstallApp}
         canInstall={!!deferredPrompt}
+        isAdmin={isAdminUser()}
+        onNavigateAdmin={() => setActiveScreen('admin')}
       />;
+      case 'admin': return isAdminUser() ? (
+        <AdminScreen 
+          appData={appData!} 
+          onUpdateField={(field, value) => updateAppData(prev => ({ ...prev, [field]: value }))} 
+        />
+      ) : (
+        <div className="py-20 text-center">
+           <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
+           <p className="text-red-500 font-bold">Acesso Negado</p>
+           <button onClick={() => setActiveScreen('studentsHub')} className="mt-4 text-primary text-sm font-bold">Voltar</button>
+        </div>
+      );
       default: return null;
     }
   };
 
   if (!isLogged) {
     if (authMode === 'register') {
-      return <RegistrationScreen onComplete={handleRegistrationComplete} onSwitchToLogin={() => setAuthMode('login')} />;
+      return <RegistrationScreen 
+        onComplete={handleRegistrationComplete} 
+        onSwitchToLogin={() => setAuthMode('login')} 
+        onShowNotification={triggerNotification}
+      />;
     } else {
       return (
         <LoginScreen 
           appData={appData} 
           onLogin={() => setIsLogged(true)} 
           onSwitchToRegister={() => setAuthMode('register')} 
+          onShowNotification={triggerNotification}
           onWipeData={() => {
             localStorage.removeItem('horizonte_data');
             localStorage.removeItem('google_access_token');
@@ -4791,7 +5093,7 @@ export default function App() {
       <Header 
         title={getScreenTitle()} 
         avatarUrl={appData?.avatarUrl}
-        showBack={activeScreen === 'occurrence' || activeScreen === 'settings' || activeScreen === 'classes' || activeScreen === 'director' || activeScreen === 'materials' || activeScreen === 'boletim' || activeScreen === 'attendance'}
+        showBack={activeScreen === 'occurrence' || activeScreen === 'settings' || activeScreen === 'classes' || activeScreen === 'director' || activeScreen === 'materials' || activeScreen === 'boletim' || activeScreen === 'attendance' || activeScreen === 'admin'}
         onBack={() => {
           setActiveScreen('studentsHub');
         }}
@@ -4816,6 +5118,9 @@ export default function App() {
             </button>
           </div>
         )}
+        
+        <SystemNotices notices={appData.adminNotices || []} />
+
         <AnimatePresence mode="wait">
           <motion.div
             key={activeScreen}

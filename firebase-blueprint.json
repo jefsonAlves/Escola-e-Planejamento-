@@ -1,27 +1,31 @@
 {
   "entities": {
-    "AppState": {
-      "title": "AppState",
-      "description": "The complete exported AppState.",
+    "User": {
+      "title": "User",
+      "description": "Represents a user (teacher, student, or both) in the system.",
       "type": "object",
       "properties": {
-        "schoolName": { "type": "string" },
-        "teacherName": { "type": "string" },
-        "birthDate": { "type": "string" },
-        "cpf": { "type": "string" },
-        "password": { "type": "string" },
-        "googleSynced": { "type": "boolean" },
-        "classes": { "type": "string", "description": "JSON stringified" },
-        "occurrences": { "type": "string", "description": "JSON stringified" },
-        "updatedAt": { "type": "string" }
+        "schoolName": { "type": "string", "description": "The name of the school the user belongs to." },
+        "teacherName": { "type": "string", "description": "The name of the teacher/user." },
+        "birthDate": { "type": "string", "description": "The user's birth date." },
+        "cpf": { "type": "string", "description": "The user's CPF (ID)." },
+        "password": { "type": "string", "description": "The user's password (hashed or plain as per current impl)." },
+        "googleSynced": { "type": "boolean", "description": "Whether the account is synced with Google Workspace." },
+        "avatarUrl": { "type": "string", "description": "The user's profile image URL." },
+        "role": { "type": "string", "enum": ["teacher", "student", "both"], "description": "The user's role in the system." },
+        "classesStr": { "type": "string", "description": "JSON stringified list of classes." },
+        "occurrencesStr": { "type": "string", "description": "JSON stringified list of occurrences." },
+        "googleCalendarEventsStr": { "type": "string", "description": "JSON stringified list of Google Calendar events." },
+        "googleClassroomActivitiesStr": { "type": "string", "description": "JSON stringified list of Google Classroom activities." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "The timestamp of the last update." }
       },
-      "required": ["schoolName", "teacherName"]
+      "required": ["schoolName", "teacherName", "cpf", "updatedAt"]
     }
   },
   "firestore": {
-    "/users/{userId}": {
-      "schema": { "$ref": "#/entities/AppState" },
-      "description": "User's master app state."
+    "users/{userId}": {
+      "schema": "User",
+      "description": "The collection of users, keyed by their Firebase Auth UID."
     }
   }
 }

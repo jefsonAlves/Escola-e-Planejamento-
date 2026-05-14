@@ -934,7 +934,7 @@ const QuickGradeDialog = ({
 
   const classes = appData.classes || [];
   const activeClass = classes.find(c => c.id === selectedClassId);
-  const students = activeClass?.students || [];
+  const students = [...(activeClass?.students || [])].sort((a, b) => a.name.localeCompare(b.name));
 
   const handleApplyGrades = () => {
     if (!activeClass || !selectedActivity.trim() || !onUpdateClasses) {
@@ -1047,7 +1047,7 @@ const QuickGradeDialog = ({
                 {students.map(student => (
                   <div key={student.id} className="flex flex-col bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50">
                     <div className="flex justify-between items-center w-full">
-                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate pr-2 flex-1">{student.name}</span>
+                      <span className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate pr-2 flex-1">{student.name.toUpperCase()}</span>
                       <input 
                         type="number" 
                         placeholder="0.0" 
@@ -1401,7 +1401,9 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
   const activeClass = classes.find(c => c.id === activeClassId);
   const students = activeClass?.students || [];
 
-  const filteredStudents = students.filter(student => 
+  const sortedStudents = [...students].sort((a, b) => a.name.localeCompare(b.name));
+
+  const filteredStudents = sortedStudents.filter(student => 
     student.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -1551,7 +1553,7 @@ const AttendanceScreen = ({ onSelectStudent, classes, onFinish, onUpdateStatus }
               </div>
               <div className="font-manrope">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">{student.name}</h3>
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">{student.name.toUpperCase()}</h3>
                   <div className="flex gap-1">
                     {student.specialNeeds?.map(need => (
                       <SpecialNeedBadge key={need} type={need} />
@@ -1653,11 +1655,7 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel, classes, onS
 
   if (!student && classes && onSelectStudent) {
     const activeClass = classes.find(c => c.id === activeClassId);
-    let studentsToShow = activeClass?.students || [];
-
-    if (studentSearch.trim() !== '') {
-       studentsToShow = classes.flatMap(c => c.students).filter(s => s.name.toLowerCase().includes(studentSearch.toLowerCase()));
-    }
+  const studentsToShow = [...(activeClass?.students || [])].sort((a, b) => a.name.localeCompare(b.name));
 
     return (
       <div className="space-y-6 pb-24">
@@ -1702,7 +1700,7 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel, classes, onS
                              {s.avatar ? <img src={s.avatar} alt="Avatar" className="w-full h-full rounded-full object-cover" /> : <UserCheck className="w-5 h-5 text-slate-400" />}
                           </div>
                           <div>
-                            <p className="font-bold text-sm text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">{s.name}</p>
+                            <p className="font-bold text-sm text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">{s.name.toUpperCase()}</p>
                             <p className="text-xs text-slate-400">{s.grade || (activeClass?.name)} • Toque para selecionar</p>
                           </div>
                           <ChevronRight className="w-4 h-4 text-slate-300 ml-auto group-hover:text-primary transition-colors" />
@@ -1728,7 +1726,7 @@ const OccurrenceScreen = ({ student, occurrences, onSave, onCancel, classes, onS
           </div>
         )}
         <div>
-          <h2 className="text-xl font-bold text-primary">{student?.name || 'Aluno'}</h2>
+          <h2 className="text-xl font-bold text-primary">{student?.name?.toUpperCase() || 'ALUNO'}</h2>
           <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{student?.grade || 'Turma'} • Sala {student?.room || 'N/A'}</p>
         </div>
       </section>
@@ -2571,6 +2569,7 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
     setEvalMethod('');
     setEvalPoints('');
     onShowNotification('Avaliação adicionada!');
+    setActiveStudentId(null);
   };
 
   const calculateTotalPoints = (evals?: StudentEvaluation[], filter?: string) => {
@@ -2658,7 +2657,9 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {(isStudent ? (appData.classes || []).flatMap(c => c.students) : activeClass?.students || []).map(student => (
+            {[...(isStudent ? (appData.classes || []).flatMap(c => c.students) : activeClass?.students || [])]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map(student => (
               <div key={student.id} onClick={() => { 
                 if (isStudent) {
                   const studentClass = (appData.classes || []).find(c => c.students.some(s => s.id === student.id));
@@ -2675,7 +2676,7 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
                 )}
                 <div className="flex-1 truncate">
                   <div className="flex items-center gap-2">
-                    <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate group-hover:text-primary transition-colors">{student.name}</h4>
+                    <h4 className="font-bold text-slate-800 dark:text-slate-100 truncate group-hover:text-primary transition-colors">{student.name.toUpperCase()}</h4>
                     <div className="flex gap-1">
                       {student.specialNeeds?.map(need => (
                         <SpecialNeedBadge key={need} type={need} />
@@ -2718,7 +2719,7 @@ const ReportsScreen = ({ appData, onUpdateClasses, onShowNotification, currentVi
             )}
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100">{activeStudent.name}</h3>
+                <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100">{activeStudent.name.toUpperCase()}</h3>
                 <div className="flex gap-1">
                   {activeStudent.specialNeeds?.map(need => (
                     <SpecialNeedBadge key={need} type={need} />
@@ -3295,7 +3296,7 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
             </div>
 
             <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-              {currentClass.students.map((s, index) => (
+              {[...(currentClass.students || [])].sort((a, b) => a.name.localeCompare(b.name)).map((s, index) => (
                 <div key={s.id} className="p-3 rounded-xl border border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800">
                   {editingStudentId === s.id ? (
                     <div className="space-y-4 w-full">
@@ -3353,7 +3354,7 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
                         <span className="text-xs font-bold text-slate-400 w-4">{index + 1}</span>
                         <div className="flex flex-col truncate">
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope truncate">{s.name}</span>
+                            <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope truncate">{s.name.toUpperCase()}</span>
                             <div className="flex gap-1">
                               {s.specialNeeds?.map(need => (
                                 <SpecialNeedBadge key={need} type={need} />

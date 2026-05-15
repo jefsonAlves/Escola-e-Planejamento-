@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2, Copy } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db } from './firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
@@ -131,7 +131,7 @@ const Header = ({ title, showBack, onBack, onSettings, avatarUrl, onNavigateDire
   );
 };
 
-const BottomNav = ({ active, onChange, role }: { active: Screen; onChange: (s: Screen) => void; role?: 'teacher' | 'student' | 'both' }) => {
+const BottomNav = ({ active, onChange, role, isSuperAdmin }: { active: Screen; onChange: (s: Screen) => void; role?: 'teacher' | 'student' | 'both'; isSuperAdmin?: boolean }) => {
   let items: { id: Screen; label: string; icon: any }[] = [
     { id: 'studentsHub', label: 'Alunos', icon: Users },
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -141,6 +141,12 @@ const BottomNav = ({ active, onChange, role }: { active: Screen; onChange: (s: S
 
   if (role === 'student') {
     items = items.filter(item => item.id !== 'studentsHub');
+  }
+
+  // Se for super admin, inserir a engrenagem no meio
+  if (isSuperAdmin) {
+     const middleIndex = Math.floor(items.length / 2);
+     items.splice(middleIndex, 0, { id: 'admin', label: 'Admin', icon: Settings });
   }
 
   const handlePress = (id: Screen) => {
@@ -3645,7 +3651,11 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
   );
 };
 
-const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateField: (field: string, value: any) => void }) => {
+const AdminScreen = ({ appData, onUpdateField, onShowNotification }: { 
+  appData: AppState, 
+  onUpdateField: (field: string, value: any) => void,
+  onShowNotification: (msg: string, type: 'info' | 'critical') => void 
+}) => {
   const [activeTab, setActiveTab] = useState<'access' | 'billing' | 'notices'>('access');
   const [noticeText, setNoticeText] = useState('');
   const [noticeType, setNoticeType] = useState<'info' | 'warning' | 'critical'>('info');
@@ -3675,11 +3685,27 @@ const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateFi
   return (
     <div className="space-y-6 pb-24">
       {isSuperAdmin && (
-        <div className="bg-primary/10 border border-primary/20 p-4 rounded-2xl mb-4 flex items-center gap-3">
-          <ShieldCheck className="w-6 h-6 text-primary" />
-          <div>
-            <p className="text-xs font-black text-primary uppercase tracking-tighter">Super Admin Ativado</p>
-            <p className="text-[10px] text-slate-500 font-bold">Acesso total concedido a Jefson</p>
+        <div className="bg-primary/5 border border-primary/20 p-8 rounded-[2.5rem] mb-6 flex flex-col items-center justify-center text-center space-y-4 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-8 opacity-10 blur-xl">
+             <Settings className="w-32 h-32 text-primary animate-[spin_10s_linear_infinite]" />
+          </div>
+          
+          <motion.div 
+            animate={{ rotate: 360 }}
+            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+            className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center relative z-10"
+          >
+            <Settings className="w-10 h-10 text-primary" />
+          </motion.div>
+          
+          <div className="relative z-10">
+            <p className="text-xs font-black text-primary uppercase tracking-[0.2em] mb-1">Super Admin Console</p>
+            <p className="text-sm text-slate-500 font-bold">Ambiente de Controle Root - Jefson</p>
+          </div>
+          
+          <div className="flex items-center gap-2 px-3 py-1 bg-primary text-white rounded-full text-[10px] font-black uppercase tracking-tighter relative z-10">
+             <ShieldCheck className="w-3 h-3" />
+             Autenticação Root Ativa
           </div>
         </div>
       )}
@@ -3715,6 +3741,15 @@ const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateFi
                 <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Base de Dados</p>
                 <p className="text-sm font-bold text-green-500">Online</p>
              </div>
+             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 col-span-2">
+                <div className="flex items-center justify-between">
+                   <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Usuários Registrados</p>
+                      <p className="text-2xl font-black text-slate-800 dark:text-slate-100">{(appData.classes || []).reduce((acc, c) => acc + (c.students?.length || 0), 0) + 1}</p>
+                   </div>
+                   <Users className="w-8 h-8 text-primary opacity-20" />
+                </div>
+             </div>
           </div>
           <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
              <div className="flex items-center justify-between">
@@ -3738,6 +3773,25 @@ const AdminScreen = ({ appData, onUpdateField }: { appData: AppState, onUpdateFi
           <div className="p-4 bg-blue-50 dark:bg-blue-500/10 rounded-2xl border border-blue-100 dark:border-blue-900/30">
             <h4 className="text-xs font-bold text-blue-800 dark:text-blue-300 mb-1">Status de Licença de Uso</h4>
             <p className="text-[10px] text-blue-600 dark:text-blue-400">Controle aqui se o app está liberado para uso ou bloqueado por falta de pagamento.</p>
+          </div>
+
+          <div className="p-5 bg-slate-900 rounded-2xl border border-slate-800 space-y-3">
+             <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-black text-primary uppercase">Receber via PIX</p>
+                <div className="px-2 py-0.5 bg-green-500/20 text-green-500 rounded text-[8px] font-bold">INSTANTÂNEO</div>
+             </div>
+             <div className="space-y-1">
+                <p className="text-[10px] text-slate-400 uppercase font-bold">Chave PIX (E-mail)</p>
+                <div className="flex items-center justify-between gap-2 bg-slate-800/50 p-3 rounded-xl border border-slate-700">
+                   <code className="text-xs text-white font-mono">jefson.s.a7@gmail.com</code>
+                   <button onClick={() => {
+                     navigator.clipboard.writeText('jefson.s.a7@gmail.com');
+                     onShowNotification('Chave PIX copiada!', 'info');
+                   }} className="text-primary hover:text-white transition-colors">
+                      <Copy className="w-4 h-4" />
+                   </button>
+                </div>
+             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
@@ -5027,6 +5081,7 @@ export default function App() {
         <AdminScreen 
           appData={appData!} 
           onUpdateField={(field, value) => updateAppData(prev => ({ ...prev, [field]: value }))} 
+          onShowNotification={triggerNotification}
         />
       ) : (
         <div className="py-20 text-center">
@@ -5174,7 +5229,7 @@ export default function App() {
       </main>
 
       {activeScreen !== 'occurrence' && (
-        <BottomNav active={activeScreen} onChange={setActiveScreen} role={currentViewRole} />
+        <BottomNav active={activeScreen} onChange={setActiveScreen} role={currentViewRole} isSuperAdmin={isAdminUser()} />
       )}
 
       {showGradeDialog && (

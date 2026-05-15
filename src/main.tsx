@@ -4,8 +4,23 @@ import App from './App.tsx';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
-// Simple auto-update for PWA
-registerSW({ immediate: true });
+// Simple auto-update for PWA with periodic checks
+const updateSW = registerSW({
+  onNeedRefresh() {
+    if (confirm('Nova versão disponível! Deseja atualizar agora?')) {
+      updateSW(true);
+    }
+  },
+  onOfflineReady() {
+    console.log('App pronto para uso offline');
+  },
+  immediate: true
+});
+
+// Check for updates every hour
+setInterval(() => {
+  updateSW();
+}, 60 * 60 * 1000);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -12,6 +12,10 @@ export default defineConfig(({mode}) => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
+        workbox: {
+          cleanupOutdatedCaches: true,
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,json,vue,txt,woff2}']
+        },
         manifest: {
           name: 'Colégio Horizonte',
           short_name: 'Horizonte',

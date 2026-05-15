@@ -3586,7 +3586,28 @@ const SettingsScreen = ({ appData, onUpdateField, onLogout, onSyncGoogle, isSync
                 Instalar
               </button>
             ) : (
-              <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-1 rounded-lg font-bold">PWA Ativo</span>
+              <div className="flex flex-col items-end gap-1">
+                <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-1 rounded-lg font-bold">PWA Ativo</span>
+                <button 
+                  onClick={() => {
+                    if (confirm('Deseja forçar a limpeza do cache e atualizar o aplicativo?')) {
+                      if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then(registrations => {
+                          for (const registration of registrations) {
+                            registration.unregister();
+                          }
+                          window.location.reload();
+                        });
+                      } else {
+                        window.location.reload();
+                      }
+                    }
+                  }}
+                  className="text-[8px] font-black text-primary uppercase hover:underline"
+                >
+                  Forçar Atualização
+                </button>
+              </div>
             )}
           </div>
 
@@ -3735,7 +3756,7 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
           <div className="grid grid-cols-2 gap-3">
              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
                 <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Versão do App</p>
-                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">v2.4.0-pro</p>
+                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">v2.5.2-pro</p>
              </div>
              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
                 <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Base de Dados</p>

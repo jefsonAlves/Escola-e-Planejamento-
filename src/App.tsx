@@ -4419,7 +4419,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    console.log("Firestore Database ID:", (db as any)._databaseId?.databaseId || "default");
+    console.log("Firestore Database ID:", (db as any)?.customUrl || (db as any)?._databaseId?.database || "default");
     const testConnectionBase = async () => {
       try {
         await getDocFromServer(doc(db, 'test', 'connection'));

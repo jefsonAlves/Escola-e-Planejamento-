@@ -1,8 +1,6 @@
 {
-  "firestore": [
-    {
-      "database": "ai-studio-colgiohorizonte2-29789425-8112-4a7f-945f-398d0b48fe01",
-      "rules": "firestore.rules"
-    }
-  ]
+  "firestore": {
+    "database": "ai-studio-colgiohorizonte2-29789425-8112-4a7f-945f-398d0b48fe01",
+    "rules": "firestore.rules"
+  }
 }

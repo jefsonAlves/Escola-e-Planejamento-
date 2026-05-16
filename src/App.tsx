@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2, Copy, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db } from './firebase';
-import { GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
 
 import { Capacitor } from '@capacitor/core';
@@ -3998,7 +3998,7 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
   );
 };
 
-const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowNotification }: { appData: AppState | null, onLogin: (fetchedData?: AppState) => void, onSwitchToRegister: () => void, onWipeData?: () => void, onShowNotification?: (msg: string, type: 'critical' | 'info') => void }) => {
+const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowNotification, setAccessToken }: { appData: AppState | null, onLogin: (fetchedData?: AppState) => void, onSwitchToRegister: () => void, onWipeData?: () => void, onShowNotification?: (msg: string, type: 'critical' | 'info') => void, setAccessToken: (token: string | null) => void }) => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -4073,7 +4073,18 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
       provider.setCustomParameters({ prompt: 'select_account' });
       
       try {
-        await signInWithRedirect(auth, provider);
+        const result = await signInWithPopup(auth, provider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const token = credential?.accessToken || null;
+        if (token) {
+          localStorage.setItem('google_access_token', token);
+          setAccessToken(token);
+          window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+        }
+        if (result.user) {
+          setIsLogged(true);
+          setActiveScreen('studentsHub');
+        }
       } catch (error: any) {
         if (error.code === 'auth/internal-error') {
           console.error("Firebase Internal Error during login. Checking authorized domains or pop-up blockers is recommended.", error);
@@ -4129,7 +4140,10 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
       provider.setCustomParameters({ prompt: 'select_account' });
       
       try {
-        await signInWithRedirect(auth, provider);
+        const result = await signInWithPopup(auth, provider);
+        if (result.user) {
+          setRecoveredPassword(appData.password || '');
+        }
       } catch (error: any) {
         if (error.code === 'auth/internal-error') {
           setRecoveryError('Erro interno do Firebase. Tente desativar bloqueadores de pop-up.');
@@ -4579,28 +4593,6 @@ export default function App() {
        }
     }
 
-    // Handle Firebase Auth Redirect Result
-    getRedirectResult(auth).then((result) => {
-      if (result) {
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const token = credential?.accessToken || null;
-        if (token) {
-          localStorage.setItem('google_access_token', token);
-          setAccessToken(token);
-          window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
-        }
-        if (result.user) {
-          setIsLogged(true);
-          setActiveScreen('studentsHub');
-        }
-      }
-    }).catch((error) => {
-      console.error("Redirect Error:", error);
-      if (error.code === 'auth/internal-error') {
-        setNotification({ message: 'Erro de autenticação (Internal Error).', type: 'critical' });
-      }
-    });
-
     return () => {
       window.removeEventListener('google-access-token-updated', handleWebToken);
     };
@@ -4848,7 +4840,17 @@ export default function App() {
         provider.setCustomParameters({ prompt: 'select_account' });
         
         try {
-          await signInWithRedirect(auth, provider);
+          const result = await signInWithPopup(auth, provider);
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          const token = credential?.accessToken || null;
+          if (token) {
+            localStorage.setItem('google_access_token', token);
+            setAccessToken(token);
+            window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+          } else {
+            if (!silent) setIsSyncingGoogle(false);
+            return;
+          }
         } catch (error: any) {
           if (error.code === 'auth/internal-error') {
              console.error("Firebase Internal Error during sync.", error);
@@ -5252,6 +5254,7 @@ export default function App() {
       return (
         <LoginScreen 
           appData={appData} 
+          setAccessToken={setAccessToken}
           onLogin={(fetchedData) => {
             if (fetchedData) {
               setAppData(fetchedData);

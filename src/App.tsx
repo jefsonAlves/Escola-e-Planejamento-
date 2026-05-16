@@ -4046,6 +4046,19 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     try {
+      if (Capacitor.isNativePlatform()) {
+        const clientId = '1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com'; // Placeholder
+        const redirectUri = 'br.com.jefson.tarefaflow://auth';
+        const scopes = encodeURIComponent('email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events');
+        
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
+        
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: authUrl });
+        setIsGoogleLoading(false);
+        return;
+      }
+
       const provider = new GoogleAuthProvider();
       provider.addScope('email');
       provider.addScope('profile');
@@ -4099,6 +4112,18 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
     }
     
     try {
+      if (Capacitor.isNativePlatform()) {
+        const clientId = '1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com'; // Placeholder
+        const redirectUri = 'br.com.jefson.tarefaflow://auth';
+        const scopes = encodeURIComponent('email profile');
+        
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
+        
+        const { Browser } = await import('@capacitor/browser');
+        await Browser.open({ url: authUrl });
+        return;
+      }
+
       const provider = new GoogleAuthProvider();
       provider.addScope('email');
       provider.setCustomParameters({ prompt: 'select_account' });
@@ -4796,6 +4821,19 @@ export default function App() {
 
       if (!token) {
         if (silent) return; // Do not interrupt user in background
+        if (Capacitor.isNativePlatform()) {
+          const clientId = '1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com'; // Placeholder
+          const redirectUri = 'br.com.jefson.tarefaflow://auth';
+          const scopes = encodeURIComponent('email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks.readonly https://www.googleapis.com/auth/tasks');
+          
+          const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
+          
+          const { Browser } = await import('@capacitor/browser');
+          await Browser.open({ url: authUrl });
+          if (!silent) setIsSyncingGoogle(false);
+          return; // Will come back via deep link
+        }
+        
         const provider = new GoogleAuthProvider();
         provider.addScope('email');
         provider.addScope('profile');

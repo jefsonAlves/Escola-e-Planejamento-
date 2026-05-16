@@ -14,7 +14,8 @@ export default defineConfig(({mode}) => {
         registerType: 'autoUpdate',
         workbox: {
           cleanupOutdatedCaches: true,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,json,vue,txt,woff2}']
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,json,vue,txt,woff2}'],
+          globIgnores: ["**/node_modules/**/*", "sw.js", "workbox-*.js"]
         },
         manifest: {
           name: 'Colégio Horizonte',

@@ -6,11 +6,13 @@ import firebaseConfig from '../firebase-applet-config.json';
 console.log("Firebase config loaded:", firebaseConfig);
 
 const app = initializeApp(firebaseConfig);
-const dbId = firebaseConfig.firestoreDatabaseId || "ai-studio-colgiohorizonte2-29789425-8112-4a7f-945f-398d0b48fe01";
+const dbId = (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)") ? firebaseConfig.firestoreDatabaseId : undefined;
 
-export const db = initializeFirestore(app, {
+export const db = dbId ? initializeFirestore(app, {
   localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
-}, dbId);
+}, dbId) : initializeFirestore(app, {
+  localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})
+});
 
 export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(console.error);

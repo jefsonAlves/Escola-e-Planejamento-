@@ -4423,7 +4423,7 @@ export default function App() {
         await getDocFromServer(doc(db, 'test', 'connection'));
       } catch (error) {
         if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration.");
+          console.error("Please check your Firebase configuration. Network error or database not found: " + error.message);
         }
         // handleFirestoreError(error, OperationType.GET, 'test/connection'); // Optional for test connection
       }

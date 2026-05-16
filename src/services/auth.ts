@@ -23,7 +23,7 @@ export const initGoogleAuthListener = (onAuthSuccess: (token: string) => void) =
           
           if (idToken) {
             try {
-              const { db, auth } = await import('../firebase');
+              const { db, auth } = await import('../lib/firebase');
               const credential = GoogleAuthProvider.credential(idToken);
               const userCredential = await signInWithCredential(auth, credential);
               await setDoc(doc(db, 'users', userCredential.user.uid), {
@@ -47,7 +47,7 @@ export const initGoogleAuthListener = (onAuthSuccess: (token: string) => void) =
   }
 };
 
-import { auth } from '../firebase';
+import { auth } from '../lib/firebase';
 
 export const logout = () => {
   auth.signOut();

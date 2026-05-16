@@ -1,5 +1,5 @@
 import { db, SyncQueueItem } from '../db/database';
-import { db as firestore } from '../firebase';
+import { db as firestore } from '../lib/firebase';
 import { collection, doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 export const addToSyncQueue = async (operation: 'CREATE' | 'UPDATE' | 'DELETE', tableName: string, localId: string, payload: any) => {

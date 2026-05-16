@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2, Copy, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
-import { auth, db } from './firebase';
+import { auth, db } from './lib/firebase';
 import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
 

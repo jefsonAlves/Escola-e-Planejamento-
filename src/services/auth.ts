@@ -26,13 +26,17 @@ export const initGoogleAuthListener = (onAuthSuccess: (token: string) => void) =
               const { db, auth } = await import('../lib/firebase');
               const credential = GoogleAuthProvider.credential(idToken);
               const userCredential = await signInWithCredential(auth, credential);
-              await setDoc(doc(db, 'users', userCredential.user.uid), {
-                email: userCredential.user.email,
-                displayName: userCredential.user.displayName,
-                photoURL: userCredential.user.photoURL,
-                role: 'teacher',
-                updatedAt: serverTimestamp(),
-              }, { merge: true });
+              try {
+                await setDoc(doc(db, 'users', userCredential.user.uid), {
+                  email: userCredential.user.email,
+                  displayName: userCredential.user.displayName,
+                  photoURL: userCredential.user.photoURL,
+                  role: 'teacher',
+                  updatedAt: serverTimestamp(),
+                }, { merge: true });
+              } catch (writeErr) {
+                console.error("❌ Auth Firestore Write Error:", writeErr);
+              }
 
             } catch (e) {
               console.error('Firebase Auth Error:', e);

@@ -4442,6 +4442,7 @@ export default function App() {
     }
   });
   const [isLogged, setIsLogged] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(!!appData);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [notification, setNotification] = useState<{message: string, type: 'critical' | 'info'} | null>(null);
@@ -4962,6 +4963,8 @@ export default function App() {
     if (!auth.currentUser) return;
     const path = `users/${auth.currentUser.uid}`;
     const unsubscribe = onSnapshot(doc(db, 'users', auth.currentUser.uid), (docSnap) => {
+      console.log("📦 Firestore Profile Update:", docSnap.exists() ? "Document found" : "Document not found");
+      setProfileLoaded(true);
       if (docSnap.exists() && !docSnap.metadata.hasPendingWrites) {
         const data = docSnap.data();
         let parsedClasses = [];
@@ -4990,16 +4993,19 @@ export default function App() {
         localStorage.setItem('horizonte_data', JSON.stringify(remoteApp));
       }
     }, (error) => {
-      handleFirestoreError(error, OperationType.GET, path);
+      console.error("❌ OnSnapshot Error:", error);
+      setProfileLoaded(true); // Treat as checked to allow fallback or retry
+      // handleFirestoreError(error, OperationType.GET, path); // Don't throw here to avoid crashing out of the app
     });
     return () => unsubscribe();
   }, [auth.currentUser]);
 
-  // Handle restoring session if already google synced
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-       // if we have local appData that says googleSynced but user is null, we are disconnected
-       // the persistence handle covers it, but Auth might need sign in
+      console.log("🔥 Auth State Changed:", user ? `Authenticated as ${user.email} (${user.uid})` : "No active session");
+      if (user) {
+        setIsLogged(true);
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -5276,6 +5282,18 @@ export default function App() {
         />
       );
     }
+  }
+
+  if (isLogged && !appData && profileLoaded) {
+    return <RegistrationScreen 
+      onComplete={handleRegistrationComplete} 
+      onSwitchToLogin={() => {
+        setIsLogged(false);
+        auth.signOut();
+        setAuthMode('login');
+      }} 
+      onShowNotification={triggerNotification}
+    />;
   }
 
   if (!appData) {

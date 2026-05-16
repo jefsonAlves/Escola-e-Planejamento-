@@ -4082,8 +4082,7 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
           window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
         }
         if (result.user) {
-          setIsLogged(true);
-          setActiveScreen('studentsHub');
+          onLogin();
         }
       } catch (error: any) {
         if (error.code === 'auth/internal-error') {

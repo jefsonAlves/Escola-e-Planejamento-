@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2, Copy, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db } from './firebase';
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithRedirect, getRedirectResult, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
 
 import { Capacitor } from '@capacitor/core';
@@ -4046,52 +4046,29 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
   const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
     try {
-      if (window.Capacitor?.isNativePlatform()) {
-        const clientId = '1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com'; // Placeholder
-        const redirectUri = 'br.com.jefson.tarefaflow://auth';
-        const scopes = encodeURIComponent('email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events');
-        
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
-        
-        const { Browser } = await import('@capacitor/browser');
-        await Browser.open({ url: authUrl });
-      } else {
-        // Fallback for web using Firebase built-in popup
-        const provider = new GoogleAuthProvider();
-        provider.addScope('email');
-        provider.addScope('profile');
-        provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
-        provider.addScope('https://www.googleapis.com/auth/classroom.rosters.readonly');
-        provider.addScope('https://www.googleapis.com/auth/classroom.coursework.me.readonly');
-        provider.addScope('https://www.googleapis.com/auth/classroom.coursework.students.readonly');
-        provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-        provider.addScope('https://www.googleapis.com/auth/calendar.events');
-        provider.addScope('https://www.googleapis.com/auth/tasks.readonly');
-        provider.addScope('https://www.googleapis.com/auth/tasks');
-        provider.setCustomParameters({ prompt: 'select_account' });
-        
-        try {
-          const result = await signInWithPopup(auth, provider);
-          const credential = GoogleAuthProvider.credentialFromResult(result);
-          const token = credential?.accessToken || null;
-          
-          if (token) {
-            localStorage.setItem('google_access_token', token);
-            window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+      const provider = new GoogleAuthProvider();
+      provider.addScope('email');
+      provider.addScope('profile');
+      provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
+      provider.addScope('https://www.googleapis.com/auth/classroom.rosters.readonly');
+      provider.addScope('https://www.googleapis.com/auth/classroom.coursework.me.readonly');
+      provider.addScope('https://www.googleapis.com/auth/classroom.coursework.students.readonly');
+      provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+      provider.addScope('https://www.googleapis.com/auth/calendar.events');
+      provider.addScope('https://www.googleapis.com/auth/tasks.readonly');
+      provider.addScope('https://www.googleapis.com/auth/tasks');
+      provider.setCustomParameters({ prompt: 'select_account' });
+      
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (error: any) {
+        if (error.code === 'auth/internal-error') {
+          console.error("Firebase Internal Error during login. Checking authorized domains or pop-up blockers is recommended.", error);
+          if (onShowNotification) {
+            onShowNotification('Erro de autenticação. Tente novamente ou desative bloqueadores.', 'critical');
           }
-          if (result.user) {
-            onLogin();
-          }
-        } catch (error: any) {
-          if (error.code === 'auth/internal-error') {
-            console.error("Firebase Internal Error during login. Checking authorized domains or pop-up blockers is recommended.", error);
-            // This error is generic. Sometimes it helps to retry or inform the user about pop-up blockers.
-            if (onShowNotification) {
-              onShowNotification('Erro de autenticação (Internal Error). Verifique se seu navegador está bloqueando pop-ups.', 'critical');
-            }
-          }
-          throw error; // Re-throw to be caught by the outer catch
         }
+        throw error;
       }
     } catch (e: any) {
       if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
@@ -4122,31 +4099,17 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
     }
     
     try {
-      if (window.Capacitor?.isNativePlatform()) {
-        const clientId = '1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com'; // Placeholder
-        const redirectUri = 'br.com.jefson.tarefaflow://auth';
-        const scopes = encodeURIComponent('email profile');
-        
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
-        
-        const { Browser } = await import('@capacitor/browser');
-        await Browser.open({ url: authUrl });
-      } else {
-        const provider = new GoogleAuthProvider();
-        provider.addScope('email');
-        provider.setCustomParameters({ prompt: 'select_account' });
-        
-        try {
-          const result = await signInWithPopup(auth, provider);
-          if (result.user) {
-            setRecoveredPassword(appData.password || '');
-          }
-        } catch (error: any) {
-          if (error.code === 'auth/internal-error') {
-            setRecoveryError('Erro interno do Firebase. Tente desativar bloqueadores de pop-up.');
-          }
-          throw error;
+      const provider = new GoogleAuthProvider();
+      provider.addScope('email');
+      provider.setCustomParameters({ prompt: 'select_account' });
+      
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (error: any) {
+        if (error.code === 'auth/internal-error') {
+          setRecoveryError('Erro interno do Firebase. Tente desativar bloqueadores de pop-up.');
         }
+        throw error;
       }
     } catch (e: any) {
       if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
@@ -4591,6 +4554,28 @@ export default function App() {
        }
     }
 
+    // Handle Firebase Auth Redirect Result
+    getRedirectResult(auth).then((result) => {
+      if (result) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const token = credential?.accessToken || null;
+        if (token) {
+          localStorage.setItem('google_access_token', token);
+          setAccessToken(token);
+          window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+        }
+        if (result.user) {
+          setIsLogged(true);
+          setActiveScreen('studentsHub');
+        }
+      }
+    }).catch((error) => {
+      console.error("Redirect Error:", error);
+      if (error.code === 'auth/internal-error') {
+        setNotification({ message: 'Erro de autenticação (Internal Error).', type: 'critical' });
+      }
+    });
+
     return () => {
       window.removeEventListener('google-access-token-updated', handleWebToken);
     };
@@ -4811,55 +4796,30 @@ export default function App() {
 
       if (!token) {
         if (silent) return; // Do not interrupt user in background
-        // Must authorize to get token without popup
-        if (window.Capacitor?.isNativePlatform()) {
-          const clientId = '1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com'; // Placeholder
-          const redirectUri = 'br.com.jefson.tarefaflow://auth';
-          const scopes = encodeURIComponent('email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks.readonly https://www.googleapis.com/auth/tasks');
-          
-          const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
-          
-          const { Browser } = await import('@capacitor/browser');
-          await Browser.open({ url: authUrl });
-          if (!silent) setIsSyncingGoogle(false);
-          return; // Will come back via deep link
-        } else {
-          const provider = new GoogleAuthProvider();
-          provider.addScope('email');
-          provider.addScope('profile');
-          provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
-          provider.addScope('https://www.googleapis.com/auth/classroom.rosters.readonly');
-          provider.addScope('https://www.googleapis.com/auth/classroom.coursework.me.readonly');
-          provider.addScope('https://www.googleapis.com/auth/classroom.coursework.students.readonly');
-          provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-          provider.addScope('https://www.googleapis.com/auth/calendar.events');
-          provider.addScope('https://www.googleapis.com/auth/tasks.readonly');
-          provider.addScope('https://www.googleapis.com/auth/tasks');
-          provider.setCustomParameters({ prompt: 'select_account' });
-          
-          try {
-            const result = await signInWithPopup(auth, provider);
-            const credential = GoogleAuthProvider.credentialFromResult(result);
-            token = credential?.accessToken || null;
-            
-            if (token) {
-              localStorage.setItem('google_access_token', token);
-              setAccessToken(token);
-              window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
-            } else {
-              if (!silent) setIsSyncingGoogle(false);
-              return;
-            }
-          } catch (error: any) {
-            if (error.code === 'auth/internal-error') {
-               console.error("Firebase Internal Error during sync. Checking authorized domains or pop-up blockers is recommended.", error);
-               if (!silent) triggerNotification('Erro de autenticação (Internal Error). Verifique bloqueadores de pop-up.', 'critical');
-            } else if (error.code === 'auth/unauthorized-domain') {
-               console.error("Domínio não autorizado no Firebase Auth", error);
-               if (!silent) triggerNotification('Erro: Domínio não autorizado no Firebase. Adicione a URL atual no Firebase Console > Authentication > Authorized domains.', 'critical');
-            }
-            throw error;
+        const provider = new GoogleAuthProvider();
+        provider.addScope('email');
+        provider.addScope('profile');
+        provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
+        provider.addScope('https://www.googleapis.com/auth/classroom.rosters.readonly');
+        provider.addScope('https://www.googleapis.com/auth/classroom.coursework.me.readonly');
+        provider.addScope('https://www.googleapis.com/auth/classroom.coursework.students.readonly');
+        provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+        provider.addScope('https://www.googleapis.com/auth/calendar.events');
+        provider.addScope('https://www.googleapis.com/auth/tasks.readonly');
+        provider.addScope('https://www.googleapis.com/auth/tasks');
+        provider.setCustomParameters({ prompt: 'select_account' });
+        
+        try {
+          await signInWithRedirect(auth, provider);
+        } catch (error: any) {
+          if (error.code === 'auth/internal-error') {
+             console.error("Firebase Internal Error during sync.", error);
+             if (!silent) triggerNotification('Erro de autenticação.', 'critical');
+          } else if (error.code === 'auth/unauthorized-domain') {
+             console.error("Domínio não autorizado", error);
+             if (!silent) triggerNotification('Erro: Domínio não autorizado no Firebase.', 'critical');
           }
+          throw error;
         }
       }
       

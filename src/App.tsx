@@ -7,7 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2, Copy, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db } from './firebase';
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
 
 import { Capacitor } from '@capacitor/core';
@@ -3736,6 +3736,27 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
   const [activeTab, setActiveTab] = useState<'access' | 'billing' | 'notices'>('access');
   const [noticeText, setNoticeText] = useState('');
   const [noticeType, setNoticeType] = useState<'info' | 'warning' | 'critical'>('info');
+  const [totalUsersCount, setTotalUsersCount] = useState<number>(224);
+  const [totalTeachersCount, setTotalTeachersCount] = useState<number>(0);
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const { collection, query, where, getCountFromServer } = await import('firebase/firestore');
+        const coll = collection(db, 'users');
+        const snapshot = await getCountFromServer(coll);
+        const ct = snapshot.data().count;
+        setTotalUsersCount(ct > 224 ? ct : 224); // Show at least 224 as per request
+        
+        const qTeachers = query(coll, where('role', 'in', ['teacher', 'both']));
+        const snapshotTeachers = await getCountFromServer(qTeachers);
+        setTotalTeachersCount(snapshotTeachers.data().count);
+      } catch (e) {
+        console.error("Count fetch error", e);
+      }
+    };
+    fetchCount();
+  }, []);
 
   const addNotice = () => {
     if (!noticeText.trim()) return;
@@ -3818,13 +3839,22 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
                 <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Base de Dados</p>
                 <p className="text-sm font-bold text-green-500">Online</p>
              </div>
-             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 col-span-2">
+             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
                 <div className="flex items-center justify-between">
                    <div>
                       <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Usuários Registrados</p>
-                      <p className="text-2xl font-black text-slate-800 dark:text-slate-100">{(appData.classes || []).reduce((acc, c) => acc + (c.students?.length || 0), 0) + 1}</p>
+                      <p className="text-2xl font-black text-slate-800 dark:text-slate-100">{totalUsersCount}</p>
                    </div>
                    <Users className="w-8 h-8 text-primary opacity-20" />
+                </div>
+             </div>
+             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+                <div className="flex items-center justify-between">
+                   <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Professores Cadastrados</p>
+                      <p className="text-2xl font-black text-slate-800 dark:text-slate-100">{totalTeachersCount}</p>
+                   </div>
+                   <Briefcase className="w-8 h-8 text-primary opacity-20" />
                 </div>
              </div>
           </div>
@@ -3985,7 +4015,7 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
     } else {
       setIsGoogleLoading(true);
       try {
-        const { signInAnonymously } = await import('firebase/auth');
+        const { signInAnonymously, signOut } = await import('firebase/auth');
         await signInAnonymously(auth);
         
         const { collection, query, where, getDocs } = await import('firebase/firestore');
@@ -3995,9 +4025,13 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
         
         if (!querySnapshot.empty) {
           const userData = querySnapshot.docs[0].data() as AppState;
-          if (onShowNotification) onShowNotification('Dados sincronizados da nuvem com sucesso!', 'info');
+          if (onShowNotification) onShowNotification('Dados sincronizados da nuvem com sucesso! Sincronização em nuvem desativada, faça login com Google para reativar.', 'info');
+          // Important: Sign out of the anonymous account so we do NOT overwrite
+          // the real cloud document with a shadow copy later.
+          await signOut(auth);
           onLogin(userData);
         } else {
+          await signOut(auth);
           setError(true);
         }
       } catch (err) {
@@ -4037,8 +4071,19 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
         provider.setCustomParameters({ prompt: 'select_account' });
         
         try {
-          localStorage.setItem('redirect_action', 'login');
-          await signInWithRedirect(auth, provider);
+          const result = await signInWithPopup(auth, provider);
+          const credential = GoogleAuthProvider.credentialFromResult(result);
+          const token = credential?.accessToken || null;
+          
+          if (token) {
+            localStorage.setItem('google_access_token', token);
+            setAccessToken(token);
+            window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+          }
+          if (result.user) {
+            setIsLogged(true);
+            setActiveScreen('studentsHub');
+          }
         } catch (error: any) {
           if (error.code === 'auth/internal-error') {
             console.error("Firebase Internal Error during login. Checking authorized domains or pop-up blockers is recommended.", error);
@@ -4094,8 +4139,10 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
         provider.setCustomParameters({ prompt: 'select_account' });
         
         try {
-          localStorage.setItem('redirect_action', 'recover');
-          await signInWithRedirect(auth, provider);
+          const result = await signInWithPopup(auth, provider);
+          if (result.user) {
+            setRecoveredPassword(appData.password || '');
+          }
         } catch (error: any) {
           if (error.code === 'auth/internal-error') {
             setRecoveryError('Erro interno do Firebase. Tente desativar bloqueadores de pop-up.');
@@ -4516,43 +4563,8 @@ export default function App() {
     });
   };
 
+
   useEffect(() => {
-    // Process Firebase Redirect Result
-    getRedirectResult(auth).then((result) => {
-      if (result) {
-        const credential = GoogleAuthProvider.credentialFromResult(result);
-        const token = credential?.accessToken;
-        if (token) {
-           localStorage.setItem('google_access_token', token);
-           setAccessToken(token);
-        }
-        
-        const action = localStorage.getItem('redirect_action');
-        localStorage.removeItem('redirect_action');
-
-        if (result.user) {
-           if (action === 'recover') {
-             // Let the LoginScreen handle recovery? 
-             // Actually, if we just log them in, they don't need to recover password!
-             setIsLogged(true);
-             setActiveScreen('studentsHub');
-           } else if (action === 'sync') {
-             setIsLogged(true);
-             // Stay on current screen
-           } else {
-             // Default login
-             setIsLogged(true);
-             setActiveScreen('studentsHub');
-           }
-        }
-      }
-    }).catch((error) => {
-      console.error("Erro no redirecionamento do Google:", error);
-      if (error.code === 'auth/unauthorized-domain') {
-        alert('Domínio não autorizado. Adicione ' + window.location.hostname + ' no Firebase > Authentication > Authorized domains.');
-      }
-    });
-
     initGoogleAuthListener((token) => {
       setAccessToken(token);
       setIsLogged(true);
@@ -4828,8 +4840,18 @@ export default function App() {
           provider.setCustomParameters({ prompt: 'select_account' });
           
           try {
-            localStorage.setItem('redirect_action', 'sync');
-            await signInWithRedirect(auth, provider);
+            const result = await signInWithPopup(auth, provider);
+            const credential = GoogleAuthProvider.credentialFromResult(result);
+            token = credential?.accessToken || null;
+            
+            if (token) {
+              localStorage.setItem('google_access_token', token);
+              setAccessToken(token);
+              window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
+            } else {
+              if (!silent) setIsSyncingGoogle(false);
+              return;
+            }
           } catch (error: any) {
             if (error.code === 'auth/internal-error') {
                console.error("Firebase Internal Error during sync. Checking authorized domains or pop-up blockers is recommended.", error);

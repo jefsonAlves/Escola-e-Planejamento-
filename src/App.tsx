@@ -4,10 +4,10 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2, Copy } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Check, Home, Users, Calendar, MessageSquare, Plus, Search, Filter, ShieldAlert, Award, AlertTriangle, FileText, Send, MoreVertical, X, Menu, Upload, Briefcase, UserCircle, MapPin, Smile, AlertOctagon, ChevronDown, Moon, Sun, LayoutDashboard, UserCheck, MessageCircle, Book, Clock, Sparkles, TriangleAlert, Ban, Camera, Mic, Save, ChevronLeft, ChevronRight, Settings, FileUp, GripVertical, Eye, EyeOff, Edit2, Video, Link2, Trash2, UploadCloud, GraduationCap, Lock, CreditCard, Megaphone, Download, ShieldCheck, CheckCircle2, Copy, ArrowRightLeft } from 'lucide-react';
 import { motion, AnimatePresence, Reorder } from 'motion/react';
 import { auth, db } from './firebase';
-import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs, getDocFromServer } from 'firebase/firestore';
 
 import { Capacitor } from '@capacitor/core';
@@ -2950,6 +2950,8 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
   const [editingSpecialNeeds, setEditingSpecialNeeds] = useState<string[]>([]);
   const [classToDelete, setClassToDelete] = useState<string | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<string | null>(null);
+  const [transferringStudentId, setTransferringStudentId] = useState<string | null>(null);
+  const [transferSelectedClassId, setTransferSelectedClassId] = useState<string | null>(null);
 
   const [showImportModal, setShowImportModal] = useState(false);
   const [schoolClasses, setSchoolClasses] = useState<{ id: string, name: string, studentsCount: number, teacherName: string, originalClass: any }[]>([]);
@@ -3100,6 +3102,25 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
       return c;
     });
     onUpdateClasses(updatedClasses);
+  };
+
+  const handleTransferStudent = () => {
+    if (!transferringStudentId || !transferSelectedClassId || !selectedClassId || transferSelectedClassId === selectedClassId) return;
+    const originalStudent = (appData.classes || []).find(cl => cl.id === selectedClassId)?.students.find(s => s.id === transferringStudentId);
+    if (!originalStudent) return;
+
+    const updatedClasses = (appData.classes || []).map(c => {
+      if (c.id === selectedClassId) {
+        return { ...c, students: c.students.filter(s => s.id !== transferringStudentId) };
+      }
+      if (c.id === transferSelectedClassId) {
+        return { ...c, students: [...c.students, { ...originalStudent, grade: c.name }] };
+      }
+      return c;
+    });
+    onUpdateClasses(updatedClasses);
+    setTransferringStudentId(null);
+    setTransferSelectedClassId(null);
   };
 
   const handleRemoveClass = (classId: string) => {
@@ -3389,18 +3410,27 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
                         ) : (
                           <>
                             <button 
+                              onClick={() => { setTransferringStudentId(s.id); setTransferSelectedClassId(null); }}
+                              className="text-slate-400 hover:text-blue-500 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
+                              title="Transferir Aluno"
+                            >
+                              <ArrowRightLeft className="w-4 h-4" />
+                            </button>
+                            <button 
                               onClick={() => { 
                                 setEditingStudentId(s.id); 
                                 setEditingStudentName(s.name); 
                                 setEditingSpecialNeeds(s.specialNeeds || []);
                               }}
                               className="text-slate-400 hover:text-primary p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
+                              title="Editar Aluno"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => setStudentToDelete(s.id)}
                               className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10"
+                              title="Remover Aluno"
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -3473,6 +3503,32 @@ const ClassesScreen = ({ appData, onUpdateClasses }: { appData: AppState, onUpda
                   className="w-full mt-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary text-sm font-bold cursor-pointer"
                 />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {transferringStudentId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setTransferringStudentId(null)}></div>
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden relative z-10 p-6 flex flex-col space-y-4">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+               <ArrowRightLeft className="w-5 h-5 text-blue-500" /> Transferir Aluno
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Selecione para qual turma deseja transferir:</p>
+            <select 
+               value={transferSelectedClassId || ''} 
+               onChange={(e) => setTransferSelectedClassId(e.target.value)}
+               className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 p-3 rounded-xl font-bold dark:text-slate-100 outline-none focus:border-blue-500 transition-colors"
+            >
+               <option value="" disabled>Escolha a turma alvo...</option>
+               {(appData.classes || []).filter(c => c.id !== selectedClassId).map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+               ))}
+            </select>
+            <div className="flex justify-end gap-2 pt-4">
+               <button onClick={() => setTransferringStudentId(null)} className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Cancelar</button>
+               <button onClick={handleTransferStudent} disabled={!transferSelectedClassId} className="px-4 py-2 rounded-xl bg-blue-500 text-white font-bold disabled:opacity-50 hover:bg-blue-600 transition-colors">Confirmar</button>
             </div>
           </div>
         </div>
@@ -3912,7 +3968,7 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
   );
 };
 
-const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowNotification }: { appData: AppState | null, onLogin: () => void, onSwitchToRegister: () => void, onWipeData?: () => void, onShowNotification?: (msg: string, type: 'critical' | 'info') => void }) => {
+const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowNotification }: { appData: AppState | null, onLogin: (fetchedData?: AppState) => void, onSwitchToRegister: () => void, onWipeData?: () => void, onShowNotification?: (msg: string, type: 'critical' | 'info') => void }) => {
   const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -3923,11 +3979,33 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (appData && (cpf === appData.cpf || cpf.replace(/\D/g, '') === appData.cpf.replace(/\D/g, '')) && password === appData.password) {
       onLogin();
     } else {
-      setError(true);
+      setIsGoogleLoading(true);
+      try {
+        const { signInAnonymously } = await import('firebase/auth');
+        await signInAnonymously(auth);
+        
+        const { collection, query, where, getDocs } = await import('firebase/firestore');
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('cpf', '==', cpf.replace(/\D/g, '')), where('password', '==', password));
+        const querySnapshot = await getDocs(q);
+        
+        if (!querySnapshot.empty) {
+          const userData = querySnapshot.docs[0].data() as AppState;
+          if (onShowNotification) onShowNotification('Dados sincronizados da nuvem com sucesso!', 'info');
+          onLogin(userData);
+        } else {
+          setError(true);
+        }
+      } catch (err) {
+        console.error("Erro na busca online:", err);
+        setError(true);
+      } finally {
+        setIsGoogleLoading(false);
+      }
     }
   };
 
@@ -3959,14 +4037,8 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
         provider.setCustomParameters({ prompt: 'select_account' });
         
         try {
-          const result = await signInWithPopup(auth, provider);
-          const credential = GoogleAuthProvider.credentialFromResult(result);
-          const token = credential?.accessToken;
-          
-          if (token) {
-             localStorage.setItem('google_access_token', token);
-             window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
-          }
+          localStorage.setItem('redirect_action', 'login');
+          await signInWithRedirect(auth, provider);
         } catch (error: any) {
           if (error.code === 'auth/internal-error') {
             console.error("Firebase Internal Error during login. Checking authorized domains or pop-up blockers is recommended.", error);
@@ -4022,10 +4094,8 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
         provider.setCustomParameters({ prompt: 'select_account' });
         
         try {
-          const result = await signInWithPopup(auth, provider);
-          if (result.user) {
-            setRecoveredPassword(appData.password || '');
-          }
+          localStorage.setItem('redirect_action', 'recover');
+          await signInWithRedirect(auth, provider);
         } catch (error: any) {
           if (error.code === 'auth/internal-error') {
             setRecoveryError('Erro interno do Firebase. Tente desativar bloqueadores de pop-up.');
@@ -4447,6 +4517,42 @@ export default function App() {
   };
 
   useEffect(() => {
+    // Process Firebase Redirect Result
+    getRedirectResult(auth).then((result) => {
+      if (result) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const token = credential?.accessToken;
+        if (token) {
+           localStorage.setItem('google_access_token', token);
+           setAccessToken(token);
+        }
+        
+        const action = localStorage.getItem('redirect_action');
+        localStorage.removeItem('redirect_action');
+
+        if (result.user) {
+           if (action === 'recover') {
+             // Let the LoginScreen handle recovery? 
+             // Actually, if we just log them in, they don't need to recover password!
+             setIsLogged(true);
+             setActiveScreen('studentsHub');
+           } else if (action === 'sync') {
+             setIsLogged(true);
+             // Stay on current screen
+           } else {
+             // Default login
+             setIsLogged(true);
+             setActiveScreen('studentsHub');
+           }
+        }
+      }
+    }).catch((error) => {
+      console.error("Erro no redirecionamento do Google:", error);
+      if (error.code === 'auth/unauthorized-domain') {
+        alert('Domínio não autorizado. Adicione ' + window.location.hostname + ' no Firebase > Authentication > Authorized domains.');
+      }
+    });
+
     initGoogleAuthListener((token) => {
       setAccessToken(token);
       setIsLogged(true);
@@ -4722,18 +4828,8 @@ export default function App() {
           provider.setCustomParameters({ prompt: 'select_account' });
           
           try {
-            const result = await signInWithPopup(auth, provider);
-            const credential = GoogleAuthProvider.credentialFromResult(result);
-            token = credential?.accessToken || null;
-            
-            if (token) {
-              localStorage.setItem('google_access_token', token);
-              setAccessToken(token);
-              window.dispatchEvent(new CustomEvent('google-access-token-updated', { detail: token }));
-            } else {
-              if (!silent) setIsSyncingGoogle(false);
-              return;
-            }
+            localStorage.setItem('redirect_action', 'sync');
+            await signInWithRedirect(auth, provider);
           } catch (error: any) {
             if (error.code === 'auth/internal-error') {
                console.error("Firebase Internal Error during sync. Checking authorized domains or pop-up blockers is recommended.", error);
@@ -5138,7 +5234,13 @@ export default function App() {
       return (
         <LoginScreen 
           appData={appData} 
-          onLogin={() => setIsLogged(true)} 
+          onLogin={(fetchedData) => {
+            if (fetchedData) {
+              setAppData(fetchedData);
+              localStorage.setItem('horizonte_data', JSON.stringify(fetchedData));
+            }
+            setIsLogged(true);
+          }} 
           onSwitchToRegister={() => setAuthMode('register')} 
           onShowNotification={triggerNotification}
           onWipeData={() => {

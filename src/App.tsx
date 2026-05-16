@@ -3981,6 +3981,13 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
     } catch (e: any) {
       if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
         console.log("Login cancelado pelo usuário.");
+      } else if (e?.code === 'auth/unauthorized-domain') {
+        console.error("Domínio não autorizado no Firebase Auth", e);
+        if (onShowNotification) {
+          onShowNotification('Erro: Domínio não autorizado no Firebase. Adicione a URL atual no Firebase Console > Authentication > Authorized domains.', 'critical');
+        } else {
+          alert('Erro: Domínio não autorizado no Firebase. Adicione a URL atual no Firebase Console > Authentication > Authorized domains.');
+        }
       } else {
         console.error("Auth error:", e);
         // Explicitly check for internal error here too if re-thrown
@@ -4029,6 +4036,8 @@ const LoginScreen = ({ appData, onLogin, onSwitchToRegister, onWipeData, onShowN
     } catch (e: any) {
       if (e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/popup-closed-by-user') {
         console.log("Recuperação cancelada pelo usuário.");
+      } else if (e?.code === 'auth/unauthorized-domain') {
+        setRecoveryError('Erro: Domínio não autorizado no Firebase. Adicione a URL atual (ais-dev-...) no Console do Firebase > Authentication > Settings > Authorized domains.');
       } else {
         console.error("Recovery Auth error:", e);
         if (!recoveryError) setRecoveryError('Erro ao autenticar com o Google.');
@@ -4729,6 +4738,9 @@ export default function App() {
             if (error.code === 'auth/internal-error') {
                console.error("Firebase Internal Error during sync. Checking authorized domains or pop-up blockers is recommended.", error);
                if (!silent) triggerNotification('Erro de autenticação (Internal Error). Verifique bloqueadores de pop-up.', 'critical');
+            } else if (error.code === 'auth/unauthorized-domain') {
+               console.error("Domínio não autorizado no Firebase Auth", error);
+               if (!silent) triggerNotification('Erro: Domínio não autorizado no Firebase. Adicione a URL atual no Firebase Console > Authentication > Authorized domains.', 'critical');
             }
             throw error;
           }

@@ -850,43 +850,6 @@ const GoogleIntegrationBlocks = ({ appData, onSyncGoogle, isSyncingGoogle, onSho
         )}
       </section>
 
-      {/* Calendar Events */}
-      <section className="glass-card rounded-3xl p-6 relative overflow-hidden group">
-        <h3 className="text-sm font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2 flex items-center gap-2">
-          <Calendar className="w-5 h-5 text-secondary" /> Próximos Agendamentos (Calendar)
-        </h3>
-        
-        {appData.googleSynced ? (
-          <div className="space-y-4">
-            {appData.googleCalendarEvents && appData.googleCalendarEvents.length > 0 ? (
-              appData.googleCalendarEvents.map((evt, idx) => (
-                <div key={evt.id} className="flex items-center gap-4">
-                  <div className={`flex flex-col items-center justify-center ${idx % 2 === 0 ? 'bg-primary/10 text-primary' : 'bg-secondary/10 text-secondary'} rounded-xl w-14 h-14 shrink-0`}>
-                    <span className="text-xs font-bold uppercase">{evt.month}</span>
-                    <span className="text-lg font-extrabold -mt-1">{evt.day}</span>
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-slate-800 dark:text-slate-100 line-clamp-1">{evt.title}</h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {evt.start}
-                    </p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-6 opacity-60">
-                <p className="font-manrope text-sm font-bold">Nenhum evento futuro na agenda.</p>
-              </div>
-            )}
-            <button onClick={() => { onShowNotification('Sincronizando agenda...'); onSyncGoogle(); }} className="w-full text-center text-[10px] font-bold text-secondary uppercase mt-4 hover:underline">Atualizar Agenda</button>
-          </div>
-        ) : (
-          <div className="text-center py-8 opacity-50">
-            <Calendar className="w-12 h-12 mx-auto text-slate-400 mb-2" />
-            <p className="font-manrope text-sm font-bold">Sincronize para ver o mural da agenda</p>
-          </div>
-        )}
-      </section>
     </>
   );
 };
@@ -3750,7 +3713,21 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
         
         const qTeachers = query(coll, where('role', 'in', ['teacher', 'both']));
         const snapshotTeachers = await getCountFromServer(qTeachers);
-        setTotalTeachersCount(snapshotTeachers.data().count);
+        let tCount = snapshotTeachers.data().count;
+        
+        try {
+          const { getDocs } = await import('firebase/firestore');
+          const qJefson = query(coll, where('email', 'in', ['jefson.s.a7@gmail.com', 'jefson.ti@gmail.com']));
+          const snapshotJefson = await getDocs(qJefson);
+          snapshotJefson.forEach(docSnap => {
+             const r = docSnap.data().role;
+             if (r !== 'teacher' && r !== 'both') {
+                 tCount++;
+             }
+          });
+        } catch(skipErr) {}
+
+        setTotalTeachersCount(tCount);
       } catch (e) {
         console.error("Count fetch error", e);
       }

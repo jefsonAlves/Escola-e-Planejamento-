@@ -290,6 +290,24 @@ const formatCPF = (val: string) => {
   return v;
 };
 
+// Global Webhook execution helper
+const triggerWebhooks = (event: 'student_added' | 'occurrence_added', payload: any) => {
+  try {
+    const stored = localStorage.getItem('horizonte_webhooks');
+    if (!stored) return;
+    const hooks: any[] = JSON.parse(stored);
+    hooks.forEach(hook => {
+      if (hook.event === 'all' || hook.event === event) {
+        fetch(hook.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ event, data: payload, timestamp: new Date().toISOString() })
+        }).catch(console.warn);
+      }
+    });
+  } catch(e) {}
+};
+
 const RegistrationScreen = ({ onComplete, onSwitchToLogin, onShowNotification }: { onComplete: (data: AppState) => void, onSwitchToLogin: () => void, onShowNotification?: (msg: string, type: 'critical' | 'info') => void }) => {
   const [step, setStep] = useState(0); // step 0 is for role selection
   const [role, setRole] = useState<'teacher' | 'student' | 'both'>('teacher');
@@ -367,16 +385,21 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin, onShowNotification }:
     const names = newStudentName.split(/[\n,]+/).map(n => n.trim()).filter(n => n.length > 0);
     if (names.length === 0) return;
 
+    let addedStudents: any[] = [];
     setClasses(classes.map(c => {
       if (c.id === activeClassId) {
-        const newStudents = names.map((name, idx) => ({
-            id: Date.now().toString() + idx,
-            name: name,
-            avatar: '',
-            grade: c.name,
-            room: 'N/A',
-            status: 'none' as const
-        }));
+        const newStudents = names.map((name, idx) => {
+            const stu = {
+                id: Date.now().toString() + idx,
+                name: name,
+                avatar: '',
+                grade: c.name,
+                room: 'N/A',
+                status: 'none' as const
+            };
+            addedStudents.push(stu);
+            return stu;
+        });
         return {
           ...c,
           students: [...c.students, ...newStudents]
@@ -384,6 +407,7 @@ const RegistrationScreen = ({ onComplete, onSwitchToLogin, onShowNotification }:
       }
       return c;
     }));
+    addedStudents.forEach(stu => triggerWebhooks('student_added', stu));
     setNewStudentName('');
   };
 
@@ -3696,11 +3720,32 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
   onUpdateField: (field: string, value: any) => void,
   onShowNotification: (msg: string, type: 'info' | 'critical') => void 
 }) => {
-  const [activeTab, setActiveTab] = useState<'access' | 'billing' | 'notices'>('access');
+  const [activeTab, setActiveTab] = useState<'access' | 'billing' | 'notices' | 'api_keys'>('access');
   const [noticeText, setNoticeText] = useState('');
   const [noticeType, setNoticeType] = useState<'info' | 'warning' | 'critical'>('info');
   const [totalUsersCount, setTotalUsersCount] = useState<number>(224);
   const [totalTeachersCount, setTotalTeachersCount] = useState<number>(0);
+  const loadLocalApiKeys = () => {
+    try {
+      const stored = localStorage.getItem('horizonte_api_keys');
+      if (stored) return JSON.parse(stored);
+    } catch(e) {}
+    return [];
+  };
+  const [apiKeys, setApiKeys] = useState<{id: string, key: string, name: string, createdAt: string}[]>(loadLocalApiKeys());
+  const [newKeyName, setNewKeyName] = useState('');
+
+  const loadLocalWebhooks = () => {
+    try {
+      const stored = localStorage.getItem('horizonte_webhooks');
+      if (stored) return JSON.parse(stored);
+    } catch(e) {}
+    return [];
+  };
+  const [webhooks, setWebhooks] = useState<{id: string, url: string, name: string, event: string, createdAt: string}[]>(loadLocalWebhooks());
+  const [newWebhookName, setNewWebhookName] = useState('');
+  const [newWebhookUrl, setNewWebhookUrl] = useState('');
+  const [newWebhookEvent, setNewWebhookEvent] = useState('all');
 
   useEffect(() => {
     const fetchCount = async () => {
@@ -3728,8 +3773,142 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
         } catch(skipErr) {}
 
         setTotalTeachersCount(tCount);
-      } catch (e) {
-        console.error("Count fetch error", e);
+      } catch (e: any) {
+        if (e?.code !== 'permission-denied') {
+          console.warn("Could not fetch total users:", e);
+        }
+      }
+      
+      try {
+        const { collection, getDocs, doc, setDoc, addDoc, serverTimestamp } = await import('firebase/firestore');
+        const coll = collection(db, 'api_keys');
+        const ksnap = await getDocs(coll);
+        const remoteKeys: any[] = [];
+        ksnap.forEach(d => {
+          remoteKeys.push({ id: d.id, ...d.data() });
+        });
+
+        // Get local keys
+        const localKeys = loadLocalApiKeys();
+        const mergedKeysMap = new Map<string, any>();
+        
+        // Load local first
+        localKeys.forEach((k: any) => {
+          if (k && k.key) mergedKeysMap.set(k.key, k);
+        });
+        
+        // Merge remote keys inside
+        remoteKeys.forEach((k: any) => {
+          if (k && k.key) {
+            mergedKeysMap.set(k.key, {
+              ...mergedKeysMap.get(k.key),
+              ...k
+            });
+          }
+        });
+        
+        let mergedKeys = Array.from(mergedKeysMap.values());
+        
+        // If there are absolutely no api keys anywhere, automatically generate a main access key!
+        if (mergedKeys.length === 0) {
+          const getCryptoValues = () => {
+            try {
+              if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+                return Array.from(window.crypto.getRandomValues(new Uint8Array(24)));
+              }
+            } catch(e) {}
+            return Array.from({ length: 24 }, () => Math.floor(Math.random() * 256));
+          };
+          
+          const defaultKeyVal = 'sk_' + getCryptoValues()
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+            
+          const defaultKey = {
+            name: 'Chave de Acesso Principal',
+            key: defaultKeyVal,
+            createdAt: new Date().toISOString()
+          };
+          
+          let docId = 'local_' + Date.now();
+          try {
+            const docRef = await addDoc(coll, {
+              ...defaultKey,
+              createdAt: serverTimestamp()
+            });
+            docId = docRef.id;
+          } catch(err) {
+            console.warn("Could not save initial key to Firestore:", err);
+          }
+          mergedKeys = [{ id: docId, ...defaultKey }];
+        }
+        
+        setApiKeys(mergedKeys);
+        localStorage.setItem('horizonte_api_keys', JSON.stringify(mergedKeys));
+
+        // Proactively synchronize any local keys to remote Firestore
+        for (const localKey of localKeys) {
+          const isRemote = remoteKeys.some((rk: any) => rk.key === localKey.key);
+          if (!isRemote && localKey.key) {
+            try {
+              await addDoc(coll, {
+                name: localKey.name || 'Integração',
+                key: localKey.key,
+                createdAt: serverTimestamp()
+              });
+            } catch(uploadErr) {
+              console.warn("Could not sync local api_key to remote Firestore:", uploadErr);
+            }
+          }
+        }
+      } catch(e) {
+        console.warn("Could not fetch api keys from Firestore, staying with local/stored", e);
+      }
+      
+      try {
+        const { collection, getDocs, addDoc, serverTimestamp } = await import('firebase/firestore');
+        const hooksColl = collection(db, 'webhooks');
+        const hsnap = await getDocs(hooksColl);
+        const remoteHooks: any[] = [];
+        hsnap.forEach(d => {
+          remoteHooks.push({ id: d.id, ...d.data() });
+        });
+
+        const localHooks = loadLocalWebhooks();
+        const mergedHooksMap = new Map<string, any>();
+        
+        localHooks.forEach((h: any) => {
+          if (h && h.url) mergedHooksMap.set(h.url + '_' + h.event, h);
+        });
+        remoteHooks.forEach((h: any) => {
+          if (h && h.url) {
+            mergedHooksMap.set(h.url + '_' + h.event, {
+              ...mergedHooksMap.get(h.url + '_' + h.event),
+              ...h
+            });
+          }
+        });
+        
+        const mergedHooks = Array.from(mergedHooksMap.values());
+        setWebhooks(mergedHooks);
+        localStorage.setItem('horizonte_webhooks', JSON.stringify(mergedHooks));
+
+        for (const localHook of localHooks) {
+          const isRemote = remoteHooks.some((rh: any) => rh.url === localHook.url && rh.event === localHook.event);
+          if (!isRemote && localHook.url) {
+            try {
+              await addDoc(hooksColl, {
+                name: localHook.name || 'Webhook',
+                url: localHook.url,
+                event: localHook.event,
+                createdAt: serverTimestamp()
+              });
+            } catch(uploadErr) {
+              console.warn("Could not sync local webhook to remote Firestore:", uploadErr);
+            }
+          }
+        }
+      } catch(e) {
+        console.warn("Could not fetch webhooks from Firestore, staying with local/stored", e);
       }
     };
     fetchCount();
@@ -3751,6 +3930,121 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
   const removeNotice = (id: string) => {
     const currentNotices = appData.adminNotices || [];
     onUpdateField('adminNotices', currentNotices.filter(n => n.id !== id));
+  };
+
+  const generateApiKey = async () => {
+    try {
+      // Robust getCryptoValues supporting iframe, local testing, or older/different webviews
+      const getCryptoValues = () => {
+        try {
+          if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+            return Array.from(window.crypto.getRandomValues(new Uint8Array(24)));
+          }
+        } catch(e) {
+          console.warn("Secure crypto not fully available, calling secondary random engine:", e);
+        }
+        return Array.from({ length: 24 }, () => Math.floor(Math.random() * 256));
+      };
+      
+      const randomKey = 'sk_' + getCryptoValues()
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      const resolvedName = newKeyName.trim() || `Integração #${apiKeys.length + 1}`;
+      const newDoc = {
+        name: resolvedName,
+        key: randomKey,
+        createdAt: new Date().toISOString()
+      };
+      
+      let docId = 'local_' + Date.now();
+      try {
+        const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+        const docRef = await addDoc(collection(db, 'api_keys'), {
+          ...newDoc,
+          createdAt: serverTimestamp() // in firestore
+        });
+        docId = docRef.id;
+      } catch(err) {
+        console.warn("Could not write api key to Firestore, storing locally", err);
+      }
+      
+      setApiKeys(prev => {
+        const updated = [...prev, { id: docId, ...newDoc }];
+        localStorage.setItem('horizonte_api_keys', JSON.stringify(updated));
+        return updated;
+      });
+      setNewKeyName('');
+      onShowNotification('Chave gerada com sucesso!', 'info');
+    } catch(e) {
+      console.error(e);
+      onShowNotification('Erro ao gerar chave: ' + (e instanceof Error ? e.message : String(e)), 'critical');
+    }
+  };
+
+  const removeApiKey = async (id: string) => {
+    try {
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      if (id && !id.startsWith('local_')) {
+        await deleteDoc(doc(db, 'api_keys', id));
+      }
+    } catch(e) {
+      console.warn("Could not delete api key from Firestore", e);
+    }
+    setApiKeys(prev => {
+      const updated = prev.filter(k => k.id !== id);
+      localStorage.setItem('horizonte_api_keys', JSON.stringify(updated));
+      return updated;
+    });
+    onShowNotification('Chave removida!', 'info');
+  };
+
+  const generateWebhook = async () => {
+    if (!newWebhookName.trim() || !newWebhookUrl.trim()) return;
+    try {
+      const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+      const newDoc = {
+        name: newWebhookName,
+        url: newWebhookUrl,
+        event: newWebhookEvent,
+        createdAt: new Date().toISOString()
+      };
+      
+      let docId = 'local_' + Date.now();
+      try {
+        const docRef = await addDoc(collection(db, 'webhooks'), {
+          ...newDoc,
+          createdAt: serverTimestamp()
+        });
+        docId = docRef.id;
+      } catch(e) { console.warn("Firebase webhook add failed, using local", e); }
+      
+      setWebhooks(prev => {
+        const updated = [...prev, { id: docId, ...newDoc }];
+        localStorage.setItem('horizonte_webhooks', JSON.stringify(updated));
+        return updated;
+      });
+      setNewWebhookName('');
+      setNewWebhookUrl('');
+      setNewWebhookEvent('all');
+      onShowNotification('Webhook adicionado!', 'info');
+    } catch(e) {
+      console.error(e);
+      onShowNotification('Erro ao adicionar webhook', 'critical');
+    }
+  };
+
+  const removeWebhook = async (id: string) => {
+    try {
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      await deleteDoc(doc(db, 'webhooks', id));
+    } catch(e) {
+      console.warn("Firebase webhook delete failed", e);
+    }
+    setWebhooks(prev => {
+      const updated = prev.filter(w => w.id !== id);
+      localStorage.setItem('horizonte_webhooks', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const isJefsonEmail = auth.currentUser?.email === 'jefson.ti@gmail.com' || auth.currentUser?.email === 'jefson.s.a7@gmail.com';
@@ -3786,7 +4080,7 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
       )}
 
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-        {(['access', 'billing', 'notices'] as const).map((tab) => (
+        {(['access', 'billing', 'notices', 'api_keys'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -3796,7 +4090,7 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
                 : 'bg-white dark:bg-slate-800 text-slate-500 border border-slate-100 dark:border-slate-700'
             }`}
           >
-            {tab === 'access' ? 'Controle de Acesso' : tab === 'billing' ? 'Cobrança e Ativação' : 'Avisos'}
+            {tab === 'access' ? 'Controle de Acesso' : tab === 'billing' ? 'Cobrança e Ativação' : tab === 'notices' ? 'Avisos' : 'APIs / Parceiros'}
           </button>
         ))}
       </div>
@@ -3967,6 +4261,158 @@ const AdminScreen = ({ appData, onUpdateField, onShowNotification }: {
                    <p className="text-center py-4 text-[10px] text-slate-400 font-bold italic">Nenhum aviso publicado.</p>
                  )}
                </div>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'api_keys' && (
+        <div className="glass-card p-6 rounded-3xl space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Link2 className="w-5 h-5 text-primary" />
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">Chaves de Integração</h3>
+          </div>
+          <p className="text-[11px] text-slate-500 font-manrope">Gere chaves para compartilhar acessos a dados no Cloud do Horizonte com aplicações parceiras aprovadas.</p>
+          
+          <div className="space-y-4 pt-2">
+             <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Criar Nova Chave</label>
+                <div className="flex flex-col gap-2">
+                   <input
+                     type="text"
+                     value={newKeyName}
+                     onChange={(e) => setNewKeyName(e.target.value)}
+                     placeholder="Nome do App Parceiro (Opcional)"
+                     className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 dark:text-white"
+                   />
+                   <button 
+                     onClick={generateApiKey}
+
+                     className="w-full bg-primary text-white text-xs font-bold py-3 rounded-xl active:scale-95 transition-all shadow-sm"
+                   >
+                     + Gerar Chave
+                   </button>
+                </div>
+             </div>
+             
+             <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Chaves Ativas</p>
+               <div className="space-y-3">
+                 {apiKeys.map(k => (
+                    <div key={k.id} className="p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 relative group transition-all hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5">
+                       <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-2">{k.name}</h4>
+                       
+                       <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-2 pr-1 mb-3">
+                         <code className="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex-1 overflow-x-auto no-scrollbar pl-2">
+                           {k.key}
+                         </code>
+                         <button 
+                           onClick={() => {
+                             navigator.clipboard.writeText(k.key);
+                             onShowNotification('Chave copiada!', 'info');
+                           }}
+                           className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                         >
+                           <Copy className="w-4 h-4" />
+                         </button>
+                       </div>
+                       
+                       <div className="flex justify-between items-center">
+                         <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                           <Clock className="w-3 h-3" />
+                           {new Date(k.createdAt).toLocaleDateString('pt-BR')}
+                         </span>
+                         <button 
+                           onClick={() => removeApiKey(k.id)}
+                           className="px-3 py-1 text-[10px] bg-red-50 text-red-600 rounded-lg opacity-100 transition-all font-bold hover:bg-red-100"
+                         >
+                           REVOGAR
+                         </button>
+                       </div>
+                    </div>
+                 ))}
+                 {apiKeys.length === 0 && (
+                   <div className="text-center py-6 bg-slate-50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-700/50 border-dashed">
+                     <Link2 className="w-6 h-6 text-slate-300 mx-auto mb-2" />
+                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Nenhuma chave gerada.</p>
+                   </div>
+                 )}
+               </div>
+             </div>
+
+             <div className="pt-6 border-t border-slate-100 dark:border-slate-700">
+                <div className="flex items-center gap-2 mb-4">
+                  <ArrowRightLeft className="w-4 h-4 text-primary" />
+                  <h4 className="font-bold text-slate-800 dark:text-slate-100">Webhooks</h4>
+                </div>
+                <p className="text-[11px] text-slate-500 font-manrope mb-4">Envie dados automaticamente para outras aplicações (ex: RD Station, Make, Zapier).</p>
+                
+                <div className="space-y-3 mb-6">
+                   <input
+                     type="text"
+                     value={newWebhookName}
+                     onChange={(e) => setNewWebhookName(e.target.value)}
+                     placeholder="Nome da Integração"
+                     className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 dark:text-white"
+                   />
+                   <input
+                     type="url"
+                     value={newWebhookUrl}
+                     onChange={(e) => setNewWebhookUrl(e.target.value)}
+                     placeholder="URL do Webhook (https://...)"
+                     className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 dark:text-white font-mono"
+                   />
+                   <select
+                     value={newWebhookEvent}
+                     onChange={(e) => setNewWebhookEvent(e.target.value)}
+                     className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 dark:text-white appearance-none"
+                   >
+                     <option value="all">Todos os Eventos</option>
+                     <option value="student_added">Novo Aluno</option>
+                     <option value="occurrence_added">Nova Ocorrência</option>
+                   </select>
+                   <button 
+                     onClick={generateWebhook}
+                     disabled={!newWebhookName.trim() || !newWebhookUrl.trim()}
+                     className="w-full bg-primary text-white text-xs font-bold py-3 rounded-xl disabled:opacity-50 cursor-not-allowed active:scale-95 transition-all shadow-sm"
+                   >
+                     + Adicionar Webhook
+                   </button>
+                </div>
+
+                <div className="space-y-3">
+                  {webhooks.map(w => (
+                     <div key={w.id} className="p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 relative group transition-all hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5">
+                        <div className="flex justify-between items-start mb-2">
+                           <h4 className="text-sm font-bold text-slate-800 dark:text-white">{w.name}</h4>
+                           <span className="px-2 py-0.5 text-[8px] font-bold uppercase rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500">
+                              {w.event === 'all' ? 'Tudo' : w.event}
+                           </span>
+                        </div>
+                        <code className="block text-[9px] text-slate-500 dark:text-slate-400 font-mono mb-3 truncate px-2 py-1.5 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                           {w.url}
+                        </code>
+                        <div className="flex justify-between items-center">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {new Date(w.createdAt).toLocaleDateString('pt-BR')}
+                          </span>
+                          <button 
+                            onClick={() => removeWebhook(w.id)}
+                            className="px-3 py-1 text-[10px] bg-red-50 text-red-600 rounded-lg opacity-100 transition-all font-bold hover:bg-red-100"
+                          >
+                            REMOVER
+                          </button>
+                        </div>
+                     </div>
+                  ))}
+                  {webhooks.length === 0 && (
+                    <div className="text-center py-6 bg-slate-50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-700/50 border-dashed">
+                      <ArrowRightLeft className="w-6 h-6 text-slate-300 mx-auto mb-2" />
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Nenhum webhook configurado.</p>
+                    </div>
+                  )}
+                </div>
              </div>
           </div>
         </div>
@@ -4969,8 +5415,10 @@ export default function App() {
         setAppData(remoteApp);
         localStorage.setItem('horizonte_data', JSON.stringify(remoteApp));
       }
-    }, (error) => {
-      console.error("❌ OnSnapshot Error:", error);
+    }, (error: any) => {
+      if (error?.code !== 'permission-denied') {
+        console.warn("Could not sync profile:", error);
+      }
       setProfileLoaded(true); // Treat as checked to allow fallback or retry
       // handleFirestoreError(error, OperationType.GET, path); // Don't throw here to avoid crashing out of the app
     });
@@ -5154,6 +5602,7 @@ export default function App() {
                  }
                }
 
+               setTimeout(() => triggerWebhooks('occurrence_added', newOcc), 15);
                return { ...prev, occurrences: [...prev.occurrences, newOcc], googleCalendarEvents: updatedEvents };
              });
              setActiveScreen('studentsHub');

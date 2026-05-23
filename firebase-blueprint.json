@@ -19,13 +19,78 @@
         "googleClassroomActivitiesStr": { "type": "string", "description": "JSON stringified list of Google Classroom activities." },
         "updatedAt": { "type": "string", "format": "date-time", "description": "The timestamp of the last update." }
       },
-      "required": ["schoolName", "teacherName", "cpf", "updatedAt"]
+      "required": ["schoolName", "teacherName", "updatedAt"]
+    },
+    "School": {
+      "title": "School",
+      "description": "Represents a school registered in the system.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the school." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the school was registered." }
+      },
+      "required": ["name", "createdAt"]
+    },
+    "SchoolLink": {
+      "title": "SchoolLink",
+      "description": "Represents a request/approval link of students to his/her profile.",
+      "type": "object",
+      "properties": {
+        "teacherId": { "type": "string", "description": "The profile ID of the requesting teacher." },
+        "teacherName": { "type": "string", "description": "The name of the teacher." },
+        "schoolName": { "type": "string", "description": "The name of the school." },
+        "originalClassId": { "type": "string", "description": "The original class structure ID." },
+        "className": { "type": "string", "description": "The name of the class." },
+        "studentsCount": { "type": "number", "description": "The count of students." },
+        "status": { "type": "string", "description": "Status of the linkage request." },
+        "requestedAt": { "type": "string", "format": "date-time", "description": "When the link was requested." }
+      },
+      "required": ["teacherId", "schoolName", "className", "requestedAt"]
+    },
+    "ApiKey": {
+      "title": "ApiKey",
+      "description": "An integration API key associated with user.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the API key." },
+        "key": { "type": "string", "description": "The API key value." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the key was created." }
+      },
+      "required": ["name", "key", "createdAt"]
+    },
+    "Webhook": {
+      "title": "Webhook",
+      "description": "A webhook configuration for custom triggers.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the webhook." },
+        "url": { "type": "string", "description": "The URL of the Webhook." },
+        "event": { "type": "string", "description": "The event to trigger on." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the webhook was created." }
+      },
+      "required": ["name", "url", "event", "createdAt"]
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "User",
       "description": "The collection of users, keyed by their Firebase Auth UID."
+    },
+    "schools/{schoolId}": {
+      "schema": "School",
+      "description": "Represents schools registrable in the system."
+    },
+    "school_links/{linkId}": {
+      "schema": "SchoolLink",
+      "description": "The collection of student linkage requests made by teachers."
+    },
+    "api_keys/{apiKeyId}": {
+      "schema": "ApiKey",
+      "description": "Collection of API keys for developer integration."
+    },
+    "webhooks/{webhookId}": {
+      "schema": "Webhook",
+      "description": "Collection of configured webhooks for custom event payloads."
     }
   }
 }

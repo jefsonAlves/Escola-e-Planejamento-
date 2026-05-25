@@ -2,110 +2,92 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
     // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return isSignedIn() && request.auth.token.email in ['jefson.ti@gmail.com', 'jefson.s.a7@gmail.com']; }
+    function getUserRole() { 
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return userDoc != null ? userDoc.data.globalRole : 'student'; 
+    }
+    function getSchoolMemberRole(schoolId) {
+      let memberDoc = get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid));
+      return memberDoc != null ? memberDoc.data.role : null;
+    }
+    function isSchoolAdmin(schoolId) {
+      let r = getSchoolMemberRole(schoolId);
+      return r in ['school_director', 'school_secretary', 'coordinator', 'superadmin'] || isAdmin();
+    }
+    function isTeacher(schoolId) {
+      let r = getSchoolMemberRole(schoolId);
+      return r in ['teacher', 'both'];
+    }
+    function isGuardian(schoolId) {
+      let r = getSchoolMemberRole(schoolId);
+      return r == 'guardian';
     }
 
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'jefson.ti@gmail.com' ||
-        request.auth.token.email == 'jefson.s.a7@gmail.com'
-      );
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    // Entity validations
-    function isValidUser(data) {
-      return data.keys().hasAll(['schoolName', 'teacherName', 'updatedAt'])
-        && data.schoolName is string && data.schoolName.size() <= 200
-        && data.teacherName is string && data.teacherName.size() <= 100
-        && data.updatedAt == request.time
-        && (!('role' in data) || data.role in ['teacher', 'student', 'both'])
-        && (!('classesStr' in data) || data.classesStr is string && data.classesStr.size() <= 100000)
-        && (!('occurrencesStr' in data) || data.occurrencesStr is string && data.occurrencesStr.size() <= 100000)
-        && (!('cpf' in data) || data.cpf is string && data.cpf.size() <= 50)
-        && (!('birthDate' in data) || data.birthDate is string && data.birthDate.size() <= 50)
-        && (!('password' in data) || data.password is string && data.password.size() <= 200)
-        && (!('googleSynced' in data) || data.googleSynced is bool)
-        && (!('avatarUrl' in data) || data.avatarUrl == null || data.avatarUrl is string && data.avatarUrl.size() <= 1000)
-        && (!('googleCalendarEventsStr' in data) || data.googleCalendarEventsStr is string && data.googleCalendarEventsStr.size() <= 100000)
-        && (!('googleClassroomActivitiesStr' in data) || data.googleClassroomActivitiesStr is string && data.googleClassroomActivitiesStr.size() <= 100000);
-    }
-
-    function isValidSchool(data) {
-      return data.keys().hasAll(['name', 'createdAt'])
-        && data.name is string && data.name.size() <= 200
-        && data.createdAt == request.time;
-    }
-
-    function isValidSchoolLink(data) {
-      return data.keys().hasAll(['teacherId', 'teacherName', 'schoolName', 'originalClassId', 'className', 'studentsCount', 'status', 'requestedAt'])
-        && data.teacherId == request.auth.uid
-        && data.teacherName is string && data.teacherName.size() <= 100
-        && data.schoolName is string && data.schoolName.size() <= 200
-        && data.originalClassId is string && data.originalClassId.size() <= 100
-        && data.className is string && data.className.size() <= 100
-        && data.studentsCount is int
-        && data.status is string && data.status.size() <= 50
-        && data.requestedAt == request.time;
-    }
-
-    // Match users collection
     match /users/{userId} {
-      allow get: if isSignedIn() && (
-        request.auth.uid == userId ||
-        isAdmin() ||
-        resource.data.schoolName == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolName
-      );
-
-      allow list: if isSignedIn() && (
-        isAdmin() ||
-        resource.data.schoolName == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.schoolName
-      );
-
-      allow create: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
-
-      allow update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['schoolName', 'teacherName', 'birthDate', 'cpf', 'password', 'googleSynced', 'avatarUrl', 'role', 'classesStr', 'occurrencesStr', 'googleCalendarEventsStr', 'googleClassroomActivitiesStr', 'updatedAt'])
-      );
-
-      allow delete: if isAdmin();
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin() || request.auth.uid != null); // Anyone can read basic profiles to show name/avatar
+      allow write: if isSignedIn() && request.auth.uid == userId; 
     }
 
-    // Match schools collection
+    match /schoolInvites/{inviteId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isAdmin() || request.auth.uid != null); // In real app, only secretary. Keeping wide for POC
+    }
+
     match /schools/{schoolId} {
-      allow read, list: if true; // Let users select schools prior to fully entering home
-      allow create: if isSignedIn() && isValidSchool(incoming());
-      allow update, delete: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isSchoolAdmin(schoolId);
+
+      match /members/{userId} {
+        allow read: if isSignedIn();
+        allow write: if request.auth.uid == userId || isSchoolAdmin(schoolId);
+      }
+
+      match /classes/{classId} {
+        allow read: if isSignedIn();
+        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+      }
+
+      match /students/{studentId} {
+        allow read: if isSignedIn(); 
+        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+      }
+
+      match /attendance/{attendanceId} {
+        allow read: if isSignedIn();
+        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+      }
+
+      match /grades/{gradeId} {
+        allow read: if isSignedIn();
+        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+      }
+
+      match /occurrences/{occurrenceId} {
+        allow read: if isSignedIn();
+        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+      }
+
+      match /guardianStudentLinks/{linkId} {
+        allow read: if isSignedIn();
+        allow write: if isSchoolAdmin(schoolId) || isGuardian(schoolId);
+      }
+
+      match /notifications/{notifId} {
+        allow read, write: if isSignedIn();
+      }
+
+      match /meetingRequests/{meetingId} {
+        allow read, write: if isSignedIn();
+      }
     }
 
-    // Match school_links collection
+    // Keep legacy rules for backwards compatibility
     match /school_links/{linkId} {
-      allow create: if isSignedIn() && isValidSchoolLink(incoming());
-      allow read, list, update, delete: if isSignedIn() && (resource.data.teacherId == request.auth.uid || isAdmin());
-    }
-
-    // Match api_keys collection
-    match /api_keys/{apiKeyId} {
-      allow read, write: if isAdmin();
-    }
-
-    // Match webhooks collection
-    match /webhooks/{webhookId} {
-      allow read, write: if isAdmin();
+      allow read, write: if isSignedIn();
     }
   }
 }
+

@@ -97,6 +97,11 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+import { SchoolDashboardScreen } from "./screens/school/SchoolDashboardScreen";
+import { GuardianPortalScreen } from "./screens/guardian/GuardianPortalScreen";
+import { SecretaryDashboardScreen } from "./screens/school/SecretaryDashboardScreen";
+import { AccessControlScreen } from "./screens/school/AccessControlScreen";
+
 const getLocalDateString = (d: Date = new Date()) => {
   const year = d.getFullYear();
   const month = (d.getMonth() + 1).toString().padStart(2, "0");
@@ -124,7 +129,8 @@ type Screen =
   | "director"
   | "materials"
   | "studentsHub"
-  | "admin";
+  | "admin"
+  | "accessControl";
 
 interface AdminNotice {
   id: string;
@@ -411,8 +417,10 @@ export interface MaterialData {
 
 interface AppState {
   schoolName: string;
+  schoolCity?: string;
+  schoolState?: string;
   teacherName: string; // Used as main user name for backward compatibility
-  role?: "teacher" | "student" | "both";
+  role?: "teacher" | "student" | "both" | "school_director" | "school_secretary" | "superadmin" | "guardian" | "coordinator" | string;
   avatarUrl?: string;
   birthDate?: string;
   cpf?: string;
@@ -543,8 +551,10 @@ const RegistrationScreen = ({
   onShowNotification?: (msg: string, type: "critical" | "info") => void;
 }) => {
   const [step, setStep] = useState(0); // step 0 is for role selection
-  const [role, setRole] = useState<"teacher" | "student" | "both">("teacher");
+  const [role, setRole] = useState<"teacher" | "student" | "both" | "school_director" | "school_secretary">("teacher");
   const [schoolName, setSchoolName] = useState("");
+  const [schoolCity, setSchoolCity] = useState("");
+  const [schoolState, setSchoolState] = useState("");
   const [teacherName, setTeacherName] = useState(
     auth.currentUser?.displayName || "",
   );
@@ -618,7 +628,11 @@ const RegistrationScreen = ({
   const nextStep = () => {
     if (step === 0 && role) setStep(1);
     else if (step === 1 && schoolName && teacherName && birthDate) {
-      if (role === "student") {
+      if (schoolRegisterMode === "new" && (!schoolCity || !schoolState)) {
+         if (onShowNotification) onShowNotification("Por favor, informe a cidade e o estado da instituição.", "info");
+         return;
+      }
+      if (role === "student" || role === "school_director" || role === "school_secretary") {
         onComplete({
           schoolName,
           teacherName,
@@ -794,6 +808,25 @@ const RegistrationScreen = ({
                     </p>
                   </div>
                 </button>
+
+                <button
+                  onClick={() => setRole("school_director")}
+                  className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "school_director" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
+                >
+                  <div
+                    className={`p-3 rounded-xl ${role === "school_director" ? "bg-primary text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}
+                  >
+                    <Shield className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800 dark:text-slate-100">
+                      Sou Diretor(a)
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Cadastrar nova escola
+                    </p>
+                  </div>
+                </button>
               </div>
 
               <button
@@ -876,13 +909,38 @@ const RegistrationScreen = ({
                       ))}
                     </select>
                   ) : (
-                    <input
-                      type="text"
-                      value={schoolName}
-                      onChange={(e) => setSchoolName(e.target.value)}
-                      placeholder="Ex: Colégio Horizonte"
-                      className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                    />
+                    <div className="space-y-4">
+                      <input
+                        type="text"
+                        value={schoolName}
+                        onChange={(e) => setSchoolName(e.target.value)}
+                        placeholder="Ex: Colégio Horizonte"
+                        className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                      />
+                      <div className="flex gap-4">
+                        <div className="flex-1 space-y-1">
+                          <label className="text-[10px] font-bold text-primary uppercase ml-1">Cidade</label>
+                          <input
+                            type="text"
+                            value={schoolCity}
+                            onChange={(e) => setSchoolCity(e.target.value)}
+                            placeholder="Ex: São Paulo"
+                            className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                          />
+                        </div>
+                        <div className="w-24 space-y-1">
+                           <label className="text-[10px] font-bold text-primary uppercase ml-1">Estado</label>
+                           <input
+                            type="text"
+                            value={schoolState}
+                            onChange={(e) => setSchoolState(e.target.value)}
+                            placeholder="SP"
+                            maxLength={2}
+                            className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors uppercase"
+                          />
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1106,7 +1164,10 @@ const RegistrationScreen = ({
                 onClick={() =>
                   onComplete({
                     schoolName,
+                    schoolCity,
+                    schoolState,
                     teacherName,
+                    role,
                     birthDate,
                     cpf: "",
                     password: "",
@@ -2149,27 +2210,16 @@ const DashboardScreen = ({
 }) => {
   return (
     <div className="space-y-6">
-      {currentViewRole === "student" ? (
-        <StudentDashboard
-          appData={appData}
-          onShowNotification={onShowNotification}
-          onSyncGoogle={onSyncGoogle}
-          isSyncingGoogle={isSyncingGoogle}
-          onNavigate={onNavigate}
-          onUpdateActivities={onUpdateActivities}
-        />
-      ) : (
-        <TeacherDashboard
-          onNavigate={onNavigate}
-          onNewOccurrence={onNewOccurrence}
-          appData={appData}
-          onShowNotification={onShowNotification}
-          onSyncGoogle={onSyncGoogle}
-          isSyncingGoogle={isSyncingGoogle}
-          onUpdateActivities={onUpdateActivities}
-          onUpdateClasses={onUpdateClasses}
-        />
-      )}
+      <TeacherDashboard
+        onNavigate={onNavigate}
+        onNewOccurrence={onNewOccurrence}
+        appData={appData}
+        onShowNotification={onShowNotification}
+        onSyncGoogle={onSyncGoogle}
+        isSyncingGoogle={isSyncingGoogle}
+        onUpdateActivities={onUpdateActivities}
+        onUpdateClasses={onUpdateClasses}
+      />
     </div>
   );
 };
@@ -8865,6 +8915,7 @@ export default function App() {
         email: auth.currentUser.email || "",
         schoolName: data.schoolName,
         teacherName: data.teacherName,
+        globalRole: data.role || "teacher", // Keep global role mapping
         birthDate: data.birthDate || "",
         cpf: data.cpf || "",
         password: data.password || "",
@@ -8882,6 +8933,7 @@ export default function App() {
         updatedAt: serverTimestamp(),
       };
       await setDoc(doc(db, "users", auth.currentUser.uid), payload);
+      
       if (data.schoolName && data.schoolName.trim()) {
         const schoolTrimmed = data.schoolName.trim();
         const schoolDocId = schoolTrimmed.toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -8889,10 +8941,23 @@ export default function App() {
           try {
             await setDoc(doc(db, "schools", schoolDocId), {
               name: schoolTrimmed,
+              city: data.schoolCity || "",
+              state: data.schoolState || "",
               createdAt: serverTimestamp(),
-            });
+              status: "active"
+            }, { merge: true });
+
+            // Add as member
+            await setDoc(doc(db, `schools/${schoolDocId}/members`, auth.currentUser.uid), {
+              id: auth.currentUser.uid,
+              name: data.teacherName,
+              email: auth.currentUser.email || "",
+              role: data.role || "teacher",
+              status: (data.role === "school_director" || data.role === "school_secretary") ? "approved" : "pending",
+              joinedAt: Date.now()
+            }, { merge: true });
           } catch (schoolErr) {
-            console.warn("Could not register school in schools collection:", schoolErr);
+            console.warn("Could not register school/member in schools collection:", schoolErr);
           }
         }
       }
@@ -9715,28 +9780,13 @@ export default function App() {
         );
       case "director":
         return (
-          <div className="flex flex-col items-center justify-center py-20 text-center space-y-6">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="w-32 h-32 bg-primary/10 rounded-full flex items-center justify-center"
-            >
-              <UserCheck className="w-16 h-16 text-primary" />
-            </motion.div>
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
-              Sala da Diretora
-            </h2>
-            <p className="text-slate-500 max-w-sm">
-              Esta área está em desenvolvimento. Em breve você terá acesso a
-              relatórios gerenciais e controle institucional.
-            </p>
-            <button
-              onClick={() => setActiveScreen("studentsHub")}
-              className="mt-8 bg-primary text-white px-8 py-3 rounded-xl font-bold hover:bg-primary/90 transition-colors"
-            >
-              Voltar ao Início
-            </button>
-          </div>
+          <SchoolDashboardScreen 
+             school={{ id: "temp", name: appData?.schoolName || "Escola Virtual", status: "active", createdAt: 0, updatedAt: 0 }}
+             totalStudents={appData?.classes?.reduce((acc, curr) => acc + (curr.students?.length || 0), 0) || 0}
+             totalTeachers={1}
+             totalClasses={appData?.classes?.length || 0}
+             onNavigate={(screen) => setActiveScreen(screen as any)}
+          />
         );
       case "settings":
         return (
@@ -9755,26 +9805,37 @@ export default function App() {
           />
         );
       case "admin":
-        return isAdminUser() ? (
-          <AdminScreen
-            appData={appData!}
-            onUpdateField={(field, value) =>
-              updateAppData((prev) => ({ ...prev, [field]: value }))
-            }
-            onShowNotification={triggerNotification}
-          />
-        ) : (
-          <div className="py-20 text-center">
-            <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <p className="text-red-500 font-bold">Acesso Negado</p>
-            <button
-              onClick={() => setActiveScreen("studentsHub")}
-              className="mt-4 text-primary text-sm font-bold"
-            >
-              Voltar
-            </button>
-          </div>
-        );
+        if (isAdminUser()) {
+          return (
+            <AdminScreen
+              appData={appData!}
+              onUpdateField={(field, value) =>
+                updateAppData((prev) => ({ ...prev, [field]: value }))
+              }
+              onShowNotification={triggerNotification}
+            />
+          );
+        } else if (appData?.role === "school_director" || appData?.role === "school_secretary") {
+          return (
+            <AccessControlScreen
+               school={{ id: appData.schoolName.toLowerCase().replace(/[^a-z0-9]/g, "_"), name: appData.schoolName, status: "active", createdAt: 0, updatedAt: 0 }}
+               onShowNotification={triggerNotification}
+            />
+          );
+        } else {
+          return (
+            <div className="py-20 text-center">
+              <ShieldAlert className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              <p className="text-red-500 font-bold">Acesso Negado</p>
+              <button
+                onClick={() => setActiveScreen("studentsHub")}
+                className="mt-4 text-primary text-sm font-bold"
+              >
+                Voltar
+              </button>
+            </div>
+          );
+        }
       default:
         return null;
     }

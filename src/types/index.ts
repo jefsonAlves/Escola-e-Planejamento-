@@ -20,6 +20,7 @@ export interface SchoolMember {
   userId: string;
   name: string;
   email: string;
+  subject?: string;
   photoUrl?: string;
   role: Role;
   status: "pending" | "approved" | "blocked";

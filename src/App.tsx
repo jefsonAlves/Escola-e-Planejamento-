@@ -420,6 +420,7 @@ interface AppState {
   schoolCity?: string;
   schoolState?: string;
   teacherName: string; // Used as main user name for backward compatibility
+  teacherSubject?: string;
   role?: "teacher" | "student" | "both" | "school_director" | "school_secretary" | "superadmin" | "guardian" | "coordinator" | string;
   avatarUrl?: string;
   birthDate?: string;
@@ -3445,55 +3446,104 @@ const OccurrenceScreen = ({
     classes?.[0]?.id || null,
   );
 
-  if (!student && classes && onSelectStudent) {
-    const activeClass = classes.find((c) => c.id === activeClassId);
-    const studentsToShow = [...(activeClass?.students || [])].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+  if (!student && classes && onSelectStudent && occurrences) { // passed occurrences are now needed here
+    let studentsToShow = [];
+    if (studentSearch.trim() !== "") {
+       const searchLower = studentSearch.trim().toLowerCase();
+       studentsToShow = classes.flatMap(c => c.students).filter(s => s.name.toLowerCase().includes(searchLower)).sort((a,b) => a.name.localeCompare(b.name));
+    } else {
+       const activeClass = classes.find((c) => c.id === activeClassId);
+       studentsToShow = [...(activeClass?.students || [])].sort((a, b) =>
+         a.name.localeCompare(b.name),
+       );
+    }
+
+    // Find students with actual occurrences
+    const studentsWithOccurrences = classes.flatMap(c => c.students)
+      .filter(s => occurrences.some((o: any) => o.studentId === s.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     return (
       <div className="space-y-6 pb-24">
-        <div>
-          <h2 className="text-2xl font-bold text-primary">Nova Advertência</h2>
-          <p className="text-sm text-slate-500 font-manrope">
-            Selecione o aluno para registrar a ocorrência.
-          </p>
-        </div>
-
-        <div className="flex gap-2">
-          <div className="flex-1 space-y-1">
-            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">
-              Turma
-            </label>
-            <select
-              value={activeClassId || ""}
-              onChange={(e) => {
-                setActiveClassId(e.target.value);
-                setStudentSearch("");
-              }}
-              className="w-full text-lg font-bold text-primary bg-transparent outline-none cursor-pointer border-b-2 border-primary/20 pb-1 pr-6"
-            >
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+        <div className="flex justify-between items-center mb-2">
+          <div>
+            <h2 className="text-2xl font-bold text-primary">Ocorrências</h2>
+            <p className="text-sm text-slate-500 font-manrope">
+              Selecione o aluno para registrar ou visualizar ocorrências.
+            </p>
           </div>
+          {onCancel && (
+            <button onClick={onCancel} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
+              <LogOut className="w-5 h-5 rotate-180" />
+            </button>
+          )}
         </div>
 
         <div className="relative">
           <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Ou busque aluno pelo nome..."
+            placeholder="Busque aluno pelo nome em qualquer turma..."
             value={studentSearch}
             onChange={(e) => setStudentSearch(e.target.value)}
-            className="w-full bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:border-primary pl-12 pr-4 py-3 rounded-2xl font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+            className="w-full bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:border-primary pl-12 pr-4 py-3 rounded-2xl font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors shadow-sm"
           />
         </div>
 
+        {studentSearch.trim() === "" && studentsWithOccurrences.length > 0 && (
+           <div className="space-y-3">
+             <h3 className="text-xs font-extrabold text-amber-500 uppercase tracking-widest pl-1">Alunos Advertidos Anteriormente</h3>
+             <div className="glass-card p-4 rounded-xl space-y-1">
+               {studentsWithOccurrences.map((s) => {
+                 const occCount = occurrences.filter((o:any) => o.studentId === s.id).length;
+                 return (
+                   <div
+                     key={`warned-${s.id}`}
+                     onClick={() => onSelectStudent(s.id)}
+                     className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-xl cursor-pointer transition-colors group"
+                   >
+                     <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                       <AlertOctagon className="w-5 h-5 text-amber-500" />
+                     </div>
+                     <div>
+                       <p className="font-bold text-sm text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">
+                         {s.name.toUpperCase()}
+                       </p>
+                       <p className="text-xs text-amber-500 font-bold">
+                         {occCount} {occCount === 1 ? 'advertência' : 'advertências'}
+                       </p>
+                     </div>
+                     <ChevronRight className="w-4 h-4 text-slate-300 ml-auto group-hover:text-primary transition-colors" />
+                   </div>
+                 );
+               })}
+             </div>
+           </div>
+        )}
+
+        {studentSearch.trim() === "" && (
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block pl-1 mt-2">
+                Filtrar por Turma
+              </label>
+              <select
+                value={activeClassId || ""}
+                onChange={(e) => setActiveClassId(e.target.value)}
+                className="w-full text-lg font-bold text-primary bg-transparent outline-none cursor-pointer border-b-2 border-primary/20 pb-1 pr-6"
+              >
+                {classes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2 pt-2">
+          {studentSearch.trim() !== "" && <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest pl-1">Resultados da Busca</h3>}
           {studentsToShow.length === 0 ? (
             <p className="text-center py-12 text-slate-400 font-manrope">
               Nenhum aluno encontrado.
@@ -3523,7 +3573,7 @@ const OccurrenceScreen = ({
                         {s.name.toUpperCase()}
                       </p>
                       <p className="text-xs text-slate-400">
-                        {s.grade || activeClass?.name} • Toque para selecionar
+                        Toque para selecionar
                       </p>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-300 ml-auto group-hover:text-primary transition-colors" />
@@ -3965,17 +4015,47 @@ const AgendaScreen = ({
   onShowNotification,
   onSyncGoogle,
   isSyncingGoogle,
+  onAddEvent,
 }: {
   appData: AppState;
   onShowNotification: (msg: string) => void;
   onSyncGoogle: () => void;
   isSyncingGoogle?: boolean;
+  onAddEvent?: (evt: any) => void;
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayInfo, setSelectedDayInfo] = useState<{
     dateStr: string;
     dayObj: Date;
   } | null>(null);
+  
+  const [showAddReminder, setShowAddReminder] = useState(false);
+  const [reminderTitle, setReminderTitle] = useState("");
+  const [reminderContent, setReminderContent] = useState("");
+
+  const handleCreateReminder = () => {
+     if (!reminderTitle.trim() || !selectedDayInfo || !onAddEvent) return;
+     const monthNames = [
+       "JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"
+     ];
+     const newEvent = {
+       id: "custom-" + Date.now().toString(),
+       title: reminderTitle,
+       month: monthNames[selectedDayInfo.dayObj.getMonth()],
+       day: selectedDayInfo.dayObj.getDate().toString(),
+       time: "O Dia Todo",
+       start: "09:00",
+       dateIso: selectedDayInfo.dateStr,
+       isCustom: true,
+       syncedToGoogle: false,
+       notes: reminderContent
+     };
+     onAddEvent(newEvent);
+     onShowNotification("Lembrete salvo na agenda.");
+     setReminderTitle("");
+     setReminderContent("");
+     setShowAddReminder(false);
+  };
 
   const getDaysInMonth = (year: number, month: number) =>
     new Date(year, month + 1, 0).getDate();
@@ -4139,20 +4219,65 @@ const AgendaScreen = ({
             </div>
 
             <div>
-              <h4 className="text-sm font-extrabold uppercase tracking-widest text-[#1a1b21] dark:text-slate-50 mb-3 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-blue-500" />
-                Conteúdo Aplicado / Agenda
-              </h4>
+              <div className="flex justify-between items-center mb-3">
+                <h4 className="text-sm font-extrabold uppercase tracking-widest text-[#1a1b21] dark:text-slate-50 flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-blue-500" />
+                  Conteúdo Aplicado / Agenda
+                </h4>
+                {!showAddReminder && (
+                   <button
+                     onClick={() => setShowAddReminder(true)}
+                     className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-1 rounded-lg uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                   >
+                     + Lembrete
+                   </button>
+                )}
+              </div>
+
+              {showAddReminder && (
+                <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 mb-4 animate-in fade-in slide-in-from-top-2">
+                   <input 
+                     type="text" 
+                     placeholder="Título do Lembrete ou Aula..." 
+                     value={reminderTitle}
+                     onChange={(e) => setReminderTitle(e.target.value)}
+                     className="w-full bg-white dark:bg-slate-800 text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:border-primary mb-2 font-medium"
+                   />
+                   <textarea
+                     placeholder="Conteúdo, matéria, ou notas adicionais..."
+                     value={reminderContent}
+                     onChange={(e) => setReminderContent(e.target.value)}
+                     className="w-full bg-white dark:bg-slate-800 text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:border-primary mb-3 min-h-[80px]"
+                   />
+                   <div className="flex gap-2">
+                     <button
+                       onClick={handleCreateReminder}
+                       disabled={!reminderTitle.trim()}
+                       className="flex-1 bg-primary text-white text-xs font-bold py-2 rounded-lg disabled:opacity-50"
+                     >
+                       Salvar
+                     </button>
+                     <button
+                       onClick={() => setShowAddReminder(false)}
+                       className="flex-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold py-2 rounded-lg"
+                     >
+                       Cancelar
+                     </button>
+                   </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 {evs.length > 0 ? (
                   evs.map((ev, idx) => (
                     <div key={ev.id || idx} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
                       <p className="font-bold text-slate-700 dark:text-slate-300 text-xs">{ev.title}</p>
-                      <p className="text-[10px] text-slate-500 font-manrope mt-1">Sincronizado do Calendário - Horário: {ev.start}</p>
+                      {ev.notes && <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-1">{ev.notes}</p>}
+                      <p className="text-[10px] text-slate-500 font-manrope mt-1">Horário: {ev.start} {ev.isCustom ? '' : '- Sincronizado do Calendário'}</p>
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-slate-500 italic">Nenhum evento ou conteúdo registrado.</p>
+                  <p className="text-xs text-slate-500 italic mb-2">Nenhum evento ou conteúdo registrado.</p>
                 )}
               </div>
             </div>
@@ -7131,6 +7256,18 @@ const SettingsScreen = ({
           </div>
           <div>
             <label className="text-[10px] font-bold text-primary uppercase ml-1">
+              Disciplina Base Lecionada
+            </label>
+            <input
+              type="text"
+              value={appData.teacherSubject || ""}
+              placeholder="Ex: Matemática, História, Educação Tecnológica..."
+              onChange={(e) => onUpdateField("teacherSubject", e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-primary uppercase ml-1">
               Data de Nascimento
             </label>
             <div className="relative">
@@ -8915,6 +9052,7 @@ export default function App() {
         email: auth.currentUser.email || "",
         schoolName: data.schoolName,
         teacherName: data.teacherName,
+        teacherSubject: data.teacherSubject || "",
         globalRole: data.role || "teacher", // Keep global role mapping
         birthDate: data.birthDate || "",
         cpf: data.cpf || "",
@@ -8952,10 +9090,65 @@ export default function App() {
               id: auth.currentUser.uid,
               name: data.teacherName,
               email: auth.currentUser.email || "",
+              subject: data.teacherSubject || "",
               role: data.role || "teacher",
               status: (data.role === "school_director" || data.role === "school_secretary") ? "approved" : "pending",
               joinedAt: Date.now()
             }, { merge: true });
+
+            // Sync Occurrences
+            if (data.occurrences && data.occurrences.length > 0) {
+              for (const occ of data.occurrences) {
+                 await setDoc(doc(db, `schools/${schoolDocId}/occurrences`, occ.id), {
+                   ...occ,
+                   syncInfo: {
+                     teacherId: auth.currentUser.uid,
+                     teacherName: data.teacherName,
+                     schoolId: schoolDocId
+                   }
+                 }, { merge: true });
+              }
+            }
+            
+            // Sync Attendance and Grades from classes
+            if (data.classes && data.classes.length > 0) {
+              for (const c of data.classes) {
+                for (const s of c.students) {
+                   if (s.attendanceHistory) {
+                     for (const [date, status] of Object.entries(s.attendanceHistory)) {
+                        const recId = `${c.id}_${s.id}_${date}`;
+                        await setDoc(doc(db, `schools/${schoolDocId}/attendance`, recId), {
+                           id: recId,
+                           studentId: s.id,
+                           studentName: s.name,
+                           classId: c.id,
+                           className: c.name,
+                           date: date,
+                           status: status,
+                           teacherId: auth.currentUser.uid
+                        }, { merge: true });
+                     }
+                   }
+                   if (s.evaluations && s.evaluations.length > 0) {
+                     for (const ev of s.evaluations) {
+                        const recId = `${c.id}_${s.id}_${ev.id}`;
+                        await setDoc(doc(db, `schools/${schoolDocId}/grades`, recId), {
+                           id: recId,
+                           studentId: s.id,
+                           studentName: s.name,
+                           classId: c.id,
+                           className: c.name,
+                           subject: data.teacherSubject || "Geral",
+                           value: ev.grade || 0,
+                           teacherId: auth.currentUser.uid,
+                           bimester: ev.bimester || "Geral"
+                        }, { merge: true });
+                     }
+                   }
+                }
+              }
+            }
+
           } catch (schoolErr) {
             console.warn("Could not register school/member in schools collection:", schoolErr);
           }
@@ -9619,6 +9812,12 @@ export default function App() {
             onShowNotification={(msg) => triggerNotification(msg, "info")}
             onSyncGoogle={handleGoogleSync}
             isSyncingGoogle={isSyncingGoogle}
+            onAddEvent={(newEvent) => {
+               updateAppData(prev => ({
+                 ...prev,
+                 googleCalendarEvents: [...(prev.googleCalendarEvents || []), newEvent]
+               }));
+            }}
           />
         );
       case "occurrence":
@@ -9626,9 +9825,11 @@ export default function App() {
           <OccurrenceScreen
             student={allStudents.find((s) => s.id === selectedStudentId)}
             occurrences={
-              appData?.occurrences.filter(
-                (o: Occurrence) => o.studentId === selectedStudentId,
-              ) || []
+              selectedStudentId
+                ? appData?.occurrences.filter(
+                    (o: Occurrence) => o.studentId === selectedStudentId,
+                  ) || []
+                : appData?.occurrences || []
             }
             classes={appData?.classes || []}
             onSelectStudent={(id) => setSelectedStudentId(id)}

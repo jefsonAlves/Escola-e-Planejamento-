@@ -100,6 +100,7 @@ export const AccessControlScreen: React.FC<Props> = ({ school, onShowNotificatio
                           <div>
                             <p className="font-bold text-sm text-slate-800 dark:text-slate-100">{member.name}</p>
                             <p className="text-[11px] text-slate-500">{member.email}</p>
+                            {member.subject && <p className="text-[10px] text-primary/80 font-bold mt-0.5">{member.subject}</p>}
                           </div>
                        </div>
                     </td>

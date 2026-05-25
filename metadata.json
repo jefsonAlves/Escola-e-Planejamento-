@@ -2,5 +2,5 @@
   "name": "Colégio Horizonte 2026",
   "description": "App pedagógico 100% Android para gestão de turmas e ocorrências.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

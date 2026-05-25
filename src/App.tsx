@@ -95,6 +95,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+const getLocalDateString = (d: Date = new Date()) => {
+  const year = d.getFullYear();
+  const month = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 // --- Types ---
 declare global {
   interface Window {
@@ -1695,6 +1702,38 @@ const TeacherDashboard = ({
   onUpdateActivities?: (activities: GoogleCourseWork[]) => void;
   onUpdateClasses?: (classes: ClassData[]) => void;
 }) => {
+  const [selectedChartClassId, setSelectedChartClassId] = useState<string>(
+    () => (appData.classes || [])[0]?.id || "",
+  );
+
+  const currentChartClassId = selectedChartClassId || (appData.classes || [])[0]?.id || "";
+  const selectedClassObj = (appData.classes || []).find((c) => c.id === currentChartClassId);
+
+  const bimestersList = ["1º Bimestre", "2º Bimestre", "3º Bimestre", "4º Bimestre"];
+  let chartHasData = false;
+  const chartData = bimestersList.map((bimester) => {
+    let sum = 0;
+    let count = 0;
+    if (selectedClassObj && selectedClassObj.students) {
+      selectedClassObj.students.forEach((student) => {
+        if (student.evaluations) {
+          student.evaluations.forEach((evalItem) => {
+            if (evalItem.bimester === bimester && typeof evalItem.points === "number") {
+              sum += evalItem.points;
+              count++;
+            }
+          });
+        }
+      });
+    }
+    if (count > 0) chartHasData = true;
+    return {
+      bimester: bimester.split(" ")[0], // "1º", "2º", etc.
+      "Média": count > 0 ? parseFloat((sum / count).toFixed(2)) : 0,
+      count,
+    };
+  });
+
   const allStudents = (appData.classes || []).flatMap((c) => c.students) || [];
   const totalStudents = allStudents.length;
 
@@ -1963,6 +2002,101 @@ const TeacherDashboard = ({
           </div>
         </div>
       </section>
+
+      {/* Média de Notas por Bimestre (Dropdown + Recharts Chart) */}
+      <section className="glass-card rounded-3xl p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-extrabold text-[#1a1b21] dark:text-slate-50 uppercase tracking-widest">
+              Média de Notas por Bimestre
+            </h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 font-manrope">
+              Evolução da média geral da classe
+            </p>
+          </div>
+          <div>
+            <select
+              value={selectedChartClassId || (appData.classes || [])[0]?.id || ""}
+              onChange={(e) => setSelectedChartClassId(e.target.value)}
+              className="w-full sm:w-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold py-2 px-3 rounded-xl outline-none focus:border-primary shadow-sm"
+            >
+              <option value="" disabled>--- Selecione uma Turma ---</option>
+              {(appData.classes || []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {selectedClassObj ? (
+          <div>
+            {chartHasData ? (
+              <div className="pt-2">
+                <ResponsiveContainer width="100%" height={240}>
+                  <LineChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
+                    <XAxis
+                      dataKey="bimester"
+                      stroke="#94a3b8"
+                      tick={{ fontSize: 10, fontWeight: "bold" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      domain={[0, 10]}
+                      stroke="#94a3b8"
+                      tick={{ fontSize: 10, fontWeight: "bold" }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickCount={6}
+                    />
+                    <RechartsTooltip
+                      contentStyle={{
+                        background: "rgba(30, 41, 59, 0.95)",
+                        border: "none",
+                        borderRadius: "12px",
+                        boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
+                        color: "#fff",
+                      }}
+                      itemStyle={{ color: "#a78bfa" }}
+                      labelStyle={{ color: "#fff", fontWeight: "bold" }}
+                      formatter={(value: any) => [`${value} pts`, "Média"]}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="Média"
+                      stroke="#712ae2"
+                      strokeWidth={3}
+                      dot={{ r: 5, strokeWidth: 2, fill: "#fff" }}
+                      activeDot={{ r: 7, strokeWidth: 0 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-700/50 border-dashed">
+                <p className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
+                  Nenhuma nota cadastrada nesta turma.
+                </p>
+                <p className="text-[11px] text-slate-500 font-manrope mt-1">
+                  Lance notas nesta turma no Boletim para ver a evolução.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-700/50 border-dashed">
+            <p className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
+              Nenhuma turma disponível.
+            </p>
+            <p className="text-[11px] text-slate-500 font-manrope mt-1">
+              Cadastre turmas para visualizar os relatórios.
+            </p>
+          </div>
+        )}
+      </section>
     </div>
   );
 };
@@ -2224,58 +2358,42 @@ const AttendanceScreen = ({
   };
 
   const [attendanceDate, setAttendanceDate] = useState(
-    () => new Date().toISOString().split("T")[0],
+    () => getLocalDateString(),
   );
 
   const selectedDateObj = new Date(attendanceDate + "T12:00:00");
   const selectedDayName = getDayName(selectedDateObj.getDay());
   const isSelectedToday =
-    attendanceDate === new Date().toISOString().split("T")[0];
+    attendanceDate === getLocalDateString();
 
   const today = new Date();
   const currentHour = today.getHours();
   const currentMinute = today.getMinutes();
   const currentTimeShort = `${currentHour.toString().padStart(2, "0")}:${currentMinute.toString().padStart(2, "0")}`;
 
-  // Prioritize classes that happen on selected day
-  const sortedClasses = [...classes].sort((a, b) => {
-    const aIsSelectedDay = a.schedule?.days?.some((d) =>
+  const targetDayClasses = classes.filter((c) =>
+    c.schedule?.days?.some((d) =>
       d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
-    );
-    const bIsSelectedDay = b.schedule?.days?.some((d) =>
-      d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
-    );
+    )
+  );
 
-    if (aIsSelectedDay && !bIsSelectedDay) return -1;
-    if (!aIsSelectedDay && bIsSelectedDay) return 1;
+  const displayClasses = targetDayClasses.length > 0 ? targetDayClasses : classes;
 
-    if (aIsSelectedDay && bIsSelectedDay && a.schedule && b.schedule) {
-      const aStarts = a.schedule.startTime;
-      const bStarts = b.schedule.startTime;
-      return aStarts.localeCompare(bStarts);
+  const sortedClasses = [...displayClasses].sort((a, b) => {
+    if (a.schedule && b.schedule) {
+      return a.schedule.startTime.localeCompare(b.schedule.startTime);
     }
-    return 0;
+    return a.name.localeCompare(b.name);
   });
 
   const [activeClassId, setActiveClassId] = useState<string | null>(
-    sortedClasses[0]?.id || null,
+    sortedClasses[0]?.id || classes[0]?.id || null,
   );
 
   // Keep track of activeClassId with a stable default when sortedClasses changes
   useEffect(() => {
-    // If the currently selected class is not for the selected day, but there IS a class for the selected day, switch to it.
-    const hasClassForDay = sortedClasses.some((c) =>
-      c.schedule?.days?.some((d) =>
-        d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
-      ),
-    );
-    const activeClassIsForDay = classes
-      .find((c) => c.id === activeClassId)
-      ?.schedule?.days?.some((d) =>
-        d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
-      );
-
-    if (hasClassForDay && !activeClassIsForDay) {
+    // If the currently selected class is not in the filtered display list, switch to the first one available
+    if (!sortedClasses.find((c) => c.id === activeClassId)) {
       setActiveClassId(sortedClasses[0]?.id || null);
     }
   }, [attendanceDate, selectedDayName]);
@@ -2288,10 +2406,25 @@ const AttendanceScreen = ({
   );
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<
     string | null
-  >(() => new Date().toISOString().split("T")[0]);
+  >(() => getLocalDateString());
+  const [calendarFilter, setCalendarFilter] = useState<"all" | "absent" | "present" | "late">("all");
 
   const activeClass = classes.find((c) => c.id === activeClassId);
   const students = activeClass?.students || [];
+
+  const launchedDates = React.useMemo(() => {
+    const datesSet = new Set<string>();
+    (activeClass?.students || []).forEach((s) => {
+      if (s.attendanceHistory) {
+        Object.entries(s.attendanceHistory).forEach(([date, status]) => {
+          if (status && status !== "none") {
+            datesSet.add(date);
+          }
+        });
+      }
+    });
+    return Array.from(datesSet).sort((a, b) => b.localeCompare(a));
+  }, [activeClass?.students]);
 
   const sortedStudents = [...students].sort((a, b) =>
     a.name.localeCompare(b.name),
@@ -2355,7 +2488,10 @@ const AttendanceScreen = ({
             <input
               type="date"
               value={attendanceDate}
-              onChange={(e) => setAttendanceDate(e.target.value)}
+              onChange={(e) => {
+                setAttendanceDate(e.target.value);
+                setSelectedCalendarDate(e.target.value);
+              }}
               className="bg-transparent border-none outline-none font-bold text-primary font-manrope uppercase cursor-pointer max-w-[120px]"
             />
           </div>
@@ -2456,6 +2592,83 @@ const AttendanceScreen = ({
               </p>
             </div>
           ) : null}
+
+          {launchedDates.length > 0 && (
+            <div className="space-y-2 mt-2">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                <RefreshCw className="w-3 h-3 text-primary animate-spin" style={{ animationDuration: "6s" }} /> Chamadas Realizadas (Toque para recuperar/ajustar)
+              </h4>
+              <div className="flex gap-2.5 overflow-x-auto pb-2 custom-scrollbar scroll-smooth no-scrollbar">
+                {launchedDates.map((date) => {
+                  const dObj = new Date(date + "T12:00:00");
+                  const formattedDate = dObj.toLocaleDateString("pt-BR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "2-digit",
+                  });
+                  const dayNameShort = getDayName(dObj.getDay()).substring(0, 3);
+                  
+                  const datePresents = (activeClass?.students || []).filter(
+                    (s) => s.attendanceHistory?.[date] === "present",
+                  ).length;
+                  const dateAbsents = (activeClass?.students || []).filter(
+                    (s) => s.attendanceHistory?.[date] === "absent",
+                  ).length;
+                  const dateLates = (activeClass?.students || []).filter(
+                    (s) => s.attendanceHistory?.[date] === "late",
+                  ).length;
+
+                  const isCurrentlyActiveDate = attendanceDate === date;
+
+                  return (
+                    <button
+                      key={date}
+                      type="button"
+                      onClick={() => {
+                        setAttendanceDate(date);
+                        setSelectedCalendarDate(date);
+                      }}
+                      className={`shrink-0 px-3.5 py-2.5 rounded-2xl border transition-all flex flex-col gap-1 min-w-[130px] shadow-xs hover:shadow-sm ${
+                        isCurrentlyActiveDate
+                          ? "bg-primary border-primary text-white shadow-md shadow-primary/10"
+                          : "bg-slate-50 dark:bg-slate-800/80 border-slate-100 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full gap-2">
+                        <span className="font-extrabold text-xs tracking-tight">
+                          {formattedDate}
+                        </span>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase ${
+                          isCurrentlyActiveDate
+                            ? "bg-white/20 text-white"
+                            : "bg-slate-200/60 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+                        }`}>
+                          {dayNameShort}
+                        </span>
+                      </div>
+                      <div className="flex gap-1.5 mt-0.5 text-[9px] font-bold font-mono">
+                        <span className={dateAbsents > 0 ? (isCurrentlyActiveDate ? "text-white" : "text-red-500") : "opacity-60"}>
+                          F:{dateAbsents}
+                        </span>
+                        <span className="opacity-40">•</span>
+                        <span className={datePresents > 0 ? (isCurrentlyActiveDate ? "text-white" : "text-emerald-500") : "opacity-60"}>
+                          P:{datePresents}
+                        </span>
+                        {dateLates > 0 && (
+                          <>
+                            <span className="opacity-40">•</span>
+                            <span className={isCurrentlyActiveDate ? "text-white" : "text-amber-500"}>
+                              A:{dateLates}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="relative">
             <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2578,39 +2791,66 @@ const AttendanceScreen = ({
                       </div>
                     </div>
 
-                    <div className="flex gap-2 shrinks-0">
-                      {currentStatus !== "present" && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onUpdateStatus(
-                              activeClassId!,
-                              student.id,
-                              attendanceDate,
-                              "present",
-                            );
-                          }}
-                          className="w-10 h-10 rounded-full bg-green-50 text-green-500 flex items-center justify-center hover:bg-green-100 transition-colors"
-                        >
-                          <Check className="w-5 h-5" />
-                        </button>
-                      )}
-                      {currentStatus !== "absent" && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onUpdateStatus(
-                              activeClassId!,
-                              student.id,
-                              attendanceDate,
-                              "absent",
-                            );
-                          }}
-                          className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100 transition-colors"
-                        >
-                          <Ban className="w-5 h-5" />
-                        </button>
-                      )}
+                    <div className="flex gap-1.5 items-center shrink-0">
+                      <button
+                        title="Marcar Presença"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateStatus(
+                            activeClassId!,
+                            student.id,
+                            attendanceDate,
+                            currentStatus === "present" ? "none" : "present",
+                          );
+                        }}
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                          currentStatus === "present"
+                            ? "bg-emerald-500 text-white shadow-sm shadow-emerald-500/20 scale-105 font-bold"
+                            : "bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                        }`}
+                      >
+                        <Check className="w-4 h-4" />
+                      </button>
+                      
+                      <button
+                        title="Marcar Falta"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateStatus(
+                            activeClassId!,
+                            student.id,
+                            attendanceDate,
+                            currentStatus === "absent" ? "none" : "absent",
+                          );
+                        }}
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                          currentStatus === "absent"
+                            ? "bg-red-500 text-white shadow-sm shadow-red-500/20 scale-105 font-bold"
+                            : "bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30"
+                        }`}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        title="Marcar Atraso"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateStatus(
+                            activeClassId!,
+                            student.id,
+                            attendanceDate,
+                            currentStatus === "late" ? "none" : "late",
+                          );
+                        }}
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                          currentStatus === "late"
+                            ? "bg-amber-500 text-white shadow-sm shadow-amber-500/20 scale-105 font-bold"
+                            : "bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                        }`}
+                      >
+                        <Clock className="w-4 h-4" />
+                      </button>
                     </div>
                   </motion.div>
                 );
@@ -2729,7 +2969,10 @@ const AttendanceScreen = ({
                     <button
                       type="button"
                       key={`day-${dayNum}`}
-                      onClick={() => setSelectedCalendarDate(dayStr)}
+                      onClick={() => {
+                        setSelectedCalendarDate(dayStr);
+                        setAttendanceDate(dayStr);
+                      }}
                       className={`h-16 rounded-xl flex flex-col justify-between p-1.5 transition-all relative border outline-none ${
                         isSelected
                           ? "bg-primary text-white border-primary shadow-md shadow-primary/25 scale-[1.03] z-10"
@@ -2825,73 +3068,194 @@ const AttendanceScreen = ({
                       s.attendanceHistory?.[selectedCalendarDate] !== "none",
                   );
 
-                  if (absents.length > 0) {
-                    return absents.map((student) => (
-                      <div
-                        key={student.id}
-                        className="flex justify-between items-center p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50"
-                      >
-                        <div className="flex items-center gap-3">
-                          {student.avatar && student.avatar.trim() !== "" ? (
-                            <img
-                              src={student.avatar}
-                              alt={student.name}
-                              className="w-10 h-10 rounded-full object-cover border border-slate-100 dark:border-slate-700"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-200 dark:border-slate-700">
-                              <UserCheck className="w-5 h-5" />
-                            </div>
-                          )}
-                          <div>
-                            <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100">
-                              {student.name.toUpperCase()}
-                            </h4>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">
-                                Falta registrada
-                              </span>
-                              {student.specialNeeds?.map((need) => (
-                                <SpecialNeedBadge key={need} type={need} />
-                              ))}
-                            </div>
-                          </div>
+                  if (hasDayRecords) {
+                    const allForDay = (activeClass?.students || []).map((s) => {
+                      const sStatus = s.attendanceHistory?.[selectedCalendarDate] || "none";
+                      return { ...s, currentStatus: sStatus };
+                    });
+
+                    const filtered = allForDay.filter((s) => {
+                      if (calendarFilter === "all") return true;
+                      return s.currentStatus === calendarFilter;
+                    });
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Filter pills */}
+                        <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl">
+                          <button
+                            type="button"
+                            onClick={() => setCalendarFilter("all")}
+                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                              calendarFilter === "all"
+                                ? "bg-white dark:bg-slate-700 text-primary shadow-sm"
+                                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                            }`}
+                          >
+                            Todos ({allForDay.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCalendarFilter("absent")}
+                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                              calendarFilter === "absent"
+                                ? "bg-red-500 text-white shadow-sm"
+                                : "text-slate-500 hover:text-red-500"
+                            }`}
+                          >
+                            Faltas ({absents.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCalendarFilter("present")}
+                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                              calendarFilter === "present"
+                                ? "bg-emerald-500 text-white shadow-sm"
+                                : "text-slate-500 hover:text-emerald-500"
+                            }`}
+                          >
+                            Presença ({presents.length})
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCalendarFilter("late")}
+                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                              calendarFilter === "late"
+                                ? "bg-amber-500 text-white shadow-sm"
+                                : "text-slate-500 hover:text-amber-500"
+                            }`}
+                          >
+                            Atrasos ({lates.length})
+                          </button>
                         </div>
 
-                        {/* Direct Update Operations */}
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onUpdateStatus(
-                                activeClass?.id || "",
-                                student.id,
-                                selectedCalendarDate,
-                                "present",
-                              )
-                            }
-                            className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-55 dark:bg-emerald-500/15 px-2.5 py-1.5 rounded-lg border border-emerald-200/40 hover:bg-emerald-100 transition-colors uppercase tracking-widest"
-                          >
-                            Presença
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onUpdateStatus(
-                                activeClass?.id || "",
-                                student.id,
-                                selectedCalendarDate,
-                                "late",
-                              )
-                            }
-                            className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-55 dark:bg-amber-500/15 px-2.5 py-1.5 rounded-lg border border-amber-200/40 hover:bg-amber-100 transition-colors uppercase tracking-widest"
-                          >
-                            Atraso
-                          </button>
+                        {/* List items */}
+                        <div className="space-y-3">
+                          {filtered.length === 0 ? (
+                            <div className="text-center py-10 text-slate-400 font-manrope font-bold">
+                              Nenhum aluno encontrado com este status.
+                            </div>
+                          ) : (
+                            filtered.map((student) => (
+                              <div
+                                key={student.id}
+                                className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-white/20 dark:bg-slate-900/30 border hover:shadow-md transition-all gap-4 border-l-4 ${
+                                  student.currentStatus === "absent"
+                                    ? "border-l-red-500 border-slate-200/50 dark:border-slate-800/80"
+                                    : student.currentStatus === "late"
+                                      ? "border-l-amber-500 border-slate-200/50 dark:border-slate-800/80"
+                                      : student.currentStatus === "present"
+                                        ? "border-l-emerald-500 border-slate-200/50 dark:border-slate-800/80"
+                                        : "border-l-slate-300 border-slate-200/50 dark:border-slate-800/80"
+                                }`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  {student.avatar && student.avatar.trim() !== "" ? (
+                                    <img
+                                      src={student.avatar}
+                                      alt={student.name}
+                                      className="w-10 h-10 rounded-full object-cover border border-slate-100 dark:border-slate-700"
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-200 dark:border-slate-700 animate-pulse">
+                                      <UserCheck className="w-5 h-5" />
+                                    </div>
+                                  )}
+                                  <div>
+                                    <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100">
+                                      {student.name.toUpperCase()}
+                                    </h4>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span
+                                        className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded ${
+                                          student.currentStatus === "absent"
+                                            ? "bg-red-50 text-red-500 dark:bg-red-500/15"
+                                            : student.currentStatus === "late"
+                                              ? "bg-amber-50 text-amber-600 dark:bg-amber-500/15"
+                                              : student.currentStatus === "present"
+                                                ? "bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15"
+                                                : "bg-slate-100 text-slate-400 dark:bg-slate-800"
+                                        }`}
+                                      >
+                                        {student.currentStatus === "absent"
+                                          ? "Falta"
+                                          : student.currentStatus === "late"
+                                            ? "Atraso"
+                                            : student.currentStatus === "present"
+                                              ? "Presente"
+                                              : "Sem Chamada"}
+                                      </span>
+                                      {student.specialNeeds?.map((need) => (
+                                        <SpecialNeedBadge key={need} type={need} />
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Operations buttons */}
+                                <div className="flex items-center gap-1.5 sm:self-center">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateStatus(
+                                        activeClass?.id || "",
+                                        student.id,
+                                        selectedCalendarDate,
+                                        "present",
+                                      )
+                                    }
+                                    className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
+                                      student.currentStatus === "present"
+                                        ? "bg-emerald-500/15 border-transparent text-emerald-600"
+                                        : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
+                                    }`}
+                                  >
+                                    Presença
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateStatus(
+                                        activeClass?.id || "",
+                                        student.id,
+                                        selectedCalendarDate,
+                                        "absent",
+                                      )
+                                    }
+                                    className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
+                                      student.currentStatus === "absent"
+                                        ? "bg-red-500/15 border-transparent text-red-600"
+                                        : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
+                                    }`}
+                                  >
+                                    Falta
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateStatus(
+                                        activeClass?.id || "",
+                                        student.id,
+                                        selectedCalendarDate,
+                                        "late",
+                                      )
+                                    }
+                                    className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
+                                      student.currentStatus === "late"
+                                        ? "bg-amber-500/15 border-transparent text-amber-600"
+                                        : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
+                                    }`}
+                                  >
+                                    Atraso
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          )}
                         </div>
                       </div>
-                    ));
+                    );
                   }
 
                   return (
@@ -2920,7 +3284,7 @@ const AttendanceScreen = ({
                               setAttendanceDate(selectedCalendarDate);
                               setViewMode("register");
                             }}
-                            className="text-xs font-bold text-white bg-primary px-4 py-2 rounded-2xl hover:shadow-lg shadow-primary/20 transition-all uppercase tracking-widest"
+                            className="text-xs font-bold text-white bg-primary px-4 py-2 rounded-2xl hover:shadow-lg shadow-primary/20 transition-all uppercase tracking-widest cursor-pointer"
                           >
                             Lançar Chamada para Este Dia
                           </button>
@@ -3552,6 +3916,30 @@ const AgendaScreen = ({
   const [showEventForm, setShowEventForm] = useState(false);
   const [newEventTitle, setNewEventTitle] = useState("");
   const [newEventTime, setNewEventTime] = useState("");
+  const [notifPermission, setNotifPermission] = useState<string>(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
+  );
+
+  const requestNotifPermission = () => {
+    if (!("Notification" in window)) {
+      onShowNotification("Seu navegador não suporta notificações.");
+      return;
+    }
+    Notification.requestPermission().then((permission) => {
+      setNotifPermission(permission);
+      if (permission === "granted") {
+        onShowNotification("Lembretes ativados com sucesso!");
+        try {
+          new Notification("Lembretes Ativados", {
+            body: "Você receberá lembretes 1 hora antes de cada compromisso!",
+            icon: "/icon-192x192.png",
+          });
+        } catch (e) {}
+      } else if (permission === "denied") {
+        onShowNotification("Notificações negadas pelo navegador.");
+      }
+    });
+  };
 
   const getDaysInMonth = (year: number, month: number) =>
     new Date(year, month + 1, 0).getDate();
@@ -3672,13 +4060,41 @@ const AgendaScreen = ({
 
   return (
     <div className="space-y-6 pb-24">
-      <div className="flex flex-col gap-1 mb-2">
-        <h2 className="text-2xl font-bold text-primary">Agenda Escolar</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400 font-manrope font-medium">
-          {viewMode === "day"
-            ? formattedSelectedDate
-            : `${selectedDate.getDate()} - ${selectedDate.getDate() + 6} de ${monthNames[selectedDate.getMonth()]}`}
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-2">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
+            Agenda Escolar
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 font-manrope font-medium">
+            {viewMode === "day"
+              ? formattedSelectedDate
+              : `${selectedDate.getDate()} - ${selectedDate.getDate() + 6} de ${monthNames[selectedDate.getMonth()]}`}
+          </p>
+        </div>
+
+        {/* Lembrete / Notificações State */}
+        <div className="flex items-center gap-2">
+          {notifPermission === "granted" ? (
+            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 animate-fade-in">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              🔔 Notificações Ativas (1h antes)
+            </span>
+          ) : notifPermission === "denied" ? (
+            <button
+              onClick={requestNotifPermission}
+              className="flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-3 py-1.5 rounded-full border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition active:scale-95"
+            >
+              <span>🔇 Notificações Bloqueadas</span>
+            </button>
+          ) : (
+            <button
+              onClick={requestNotifPermission}
+              className="flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-3 py-1.5 rounded-full border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition active:scale-95"
+            >
+              <span>🔔 Ativar Lembretes (Notificações)</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-2 glass-card p-1 rounded-2xl w-fit mb-4">
@@ -4299,7 +4715,8 @@ const ReportsScreen = ({
   );
   const [selectedReportCalendarDate, setSelectedReportCalendarDate] = useState<
     string | null
-  >(() => new Date().toISOString().split("T")[0]);
+  >(() => getLocalDateString());
+  const [reportCalendarFilter, setReportCalendarFilter] = useState<"all" | "absent" | "present" | "late">("all");
 
   const [editingDiag, setEditingDiag] = useState(false);
   const [diagText, setDiagText] = useState("");
@@ -4823,7 +5240,7 @@ const ReportsScreen = ({
                                       ...s,
                                       status:
                                         selectedReportCalendarDate ===
-                                        new Date().toISOString().split("T")[0]
+                                        getLocalDateString()
                                           ? newStatus
                                           : s.status,
                                       attendanceHistory: {
@@ -4848,66 +5265,188 @@ const ReportsScreen = ({
                         );
                       };
 
-                      if (absents.length > 0) {
-                        return absents.map((student) => (
-                          <div
-                            key={`rep-abs-stu2-${student.id}`}
-                            className="flex justify-between items-center p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 hover:shadow-sm transition-all"
-                          >
-                            <div className="flex items-center gap-3">
-                              {student.avatar &&
-                              student.avatar.trim() !== "" ? (
-                                <img
-                                  src={student.avatar}
-                                  alt={student.name}
-                                  className="w-10 h-10 rounded-full object-cover border border-slate-100 dark:border-slate-700"
-                                  referrerPolicy="no-referrer"
-                                />
-                              ) : (
-                                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-                                  <UserCheck className="w-5 h-5" />
-                                </div>
-                              )}
-                              <div>
-                                <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100">
-                                  {student.name.toUpperCase()}
-                                </h4>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span className="text-[10px] font-bold text-red-500 bg-red-100 dark:bg-red-950/40 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                                    MARCOU FALTA
-                                  </span>
-                                  {student.specialNeeds?.map((need) => (
-                                    <SpecialNeedBadge key={need} type={need} />
-                                  ))}
-                                </div>
-                              </div>
+                      if (hasDayRecords) {
+                        const allForDay = (activeClass?.students || []).map((s) => {
+                          const sStatus = s.attendanceHistory?.[selectedReportCalendarDate] || "none";
+                          return { ...s, currentStatus: sStatus };
+                        });
+
+                        const filtered = allForDay.filter((s) => {
+                          if (reportCalendarFilter === "all") return true;
+                          return s.currentStatus === reportCalendarFilter;
+                        });
+
+                        return (
+                          <div className="space-y-4">
+                            {/* Filter pills */}
+                            <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl">
+                              <button
+                                type="button"
+                                onClick={() => setReportCalendarFilter("all")}
+                                className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                                  reportCalendarFilter === "all"
+                                    ? "bg-white dark:bg-slate-700 text-primary shadow-sm font-manrope font-semibold"
+                                    : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                                }`}
+                              >
+                                Todos ({allForDay.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReportCalendarFilter("absent")}
+                                className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                                  reportCalendarFilter === "absent"
+                                    ? "bg-red-500 text-white shadow-sm font-manrope font-semibold"
+                                    : "text-slate-500 hover:text-red-500"
+                                }`}
+                              >
+                                Faltas ({absents.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReportCalendarFilter("present")}
+                                className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                                  reportCalendarFilter === "present"
+                                    ? "bg-emerald-500 text-white shadow-sm font-manrope font-semibold"
+                                    : "text-slate-500 hover:text-emerald-500"
+                                }`}
+                              >
+                                Presenças ({presents.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReportCalendarFilter("late")}
+                                className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                                  reportCalendarFilter === "late"
+                                    ? "bg-amber-500 text-white shadow-sm font-manrope font-semibold"
+                                    : "text-slate-500 hover:text-amber-500"
+                                }`}
+                              >
+                                Atrasos ({lates.length})
+                              </button>
                             </div>
 
-                            <div className="flex items-center gap-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleStatusUpdateInReport(
-                                    student.id,
-                                    "present",
-                                  )
-                                }
-                                className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1.5 rounded-lg border border-emerald-200/5 border-emerald-100 hover:bg-emerald-100 transition-colors uppercase tracking-widest"
-                              >
-                                Dar Presença
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleStatusUpdateInReport(student.id, "late")
-                                }
-                                className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-200/5 border-amber-100 hover:bg-amber-100 transition-colors uppercase tracking-widest"
-                              >
-                                Dar Atraso
-                              </button>
+                            {/* List items */}
+                            <div className="space-y-3">
+                              {filtered.length === 0 ? (
+                                <div className="text-center py-10 text-slate-400 font-manrope font-bold">
+                                  Nenhum aluno encontrado com este status.
+                                </div>
+                              ) : (
+                                filtered.map((student) => (
+                                  <div
+                                    key={`rep-stud-${student.id}`}
+                                    className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-white/20 dark:bg-slate-900/30 border hover:shadow-md transition-all gap-4 border-l-4 ${
+                                      student.currentStatus === "absent"
+                                        ? "border-l-red-500 border-slate-200/50 dark:border-slate-800/80"
+                                        : student.currentStatus === "late"
+                                          ? "border-l-amber-500 border-slate-200/50 dark:border-slate-800/80"
+                                          : student.currentStatus === "present"
+                                            ? "border-l-emerald-500 border-slate-200/50 dark:border-slate-800/80"
+                                            : "border-l-slate-300 border-slate-200/50 dark:border-slate-800/80"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      {student.avatar && student.avatar.trim() !== "" ? (
+                                        <img
+                                          src={student.avatar}
+                                          alt={student.name}
+                                          className="w-10 h-10 rounded-full object-cover border border-slate-100 dark:border-slate-700"
+                                          referrerPolicy="no-referrer"
+                                        />
+                                      ) : (
+                                        <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 border border-slate-200 dark:border-slate-700">
+                                          <UserCheck className="w-5 h-5" />
+                                        </div>
+                                      )}
+                                      <div>
+                                        <h4 className="font-bold text-sm text-slate-800 dark:text-slate-100">
+                                          {student.name.toUpperCase()}
+                                        </h4>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                          <span
+                                            className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded ${
+                                              student.currentStatus === "absent"
+                                                ? "bg-red-50 text-red-500 dark:bg-red-500/15"
+                                                : student.currentStatus === "late"
+                                                  ? "bg-amber-50 text-amber-600 dark:bg-amber-500/15"
+                                                  : student.currentStatus === "present"
+                                                    ? "bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15"
+                                                    : "bg-slate-100 text-slate-400 dark:bg-slate-800"
+                                            }`}
+                                          >
+                                            {student.currentStatus === "absent"
+                                              ? "Falta"
+                                              : student.currentStatus === "late"
+                                                ? "Atraso"
+                                                : student.currentStatus === "present"
+                                                  ? "Presente"
+                                                  : "Sem Chamada"}
+                                          </span>
+                                          {student.specialNeeds?.map((need) => (
+                                            <SpecialNeedBadge key={need} type={need} />
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {/* Direct operations */}
+                                    <div className="flex items-center gap-1.5 sm:self-center">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleStatusUpdateInReport(
+                                            student.id,
+                                            "present",
+                                          )
+                                        }
+                                        className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
+                                          student.currentStatus === "present"
+                                            ? "bg-emerald-500/15 border-transparent text-emerald-600"
+                                            : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
+                                        }`}
+                                      >
+                                        Presença
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleStatusUpdateInReport(
+                                            student.id,
+                                            "absent",
+                                          )
+                                        }
+                                        className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
+                                          student.currentStatus === "absent"
+                                            ? "bg-red-500/15 border-transparent text-red-600"
+                                            : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
+                                        }`}
+                                      >
+                                        Falta
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleStatusUpdateInReport(
+                                            student.id,
+                                            "late",
+                                          )
+                                        }
+                                        className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
+                                          student.currentStatus === "late"
+                                            ? "bg-amber-500/15 border-transparent text-amber-600"
+                                            : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
+                                        }`}
+                                      >
+                                        Atraso
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
                             </div>
                           </div>
-                        ));
+                        );
                       }
 
                       return (
@@ -5485,10 +6024,7 @@ const ReportsScreen = ({
                                           return {
                                             ...s,
                                             status:
-                                              date ===
-                                              new Date()
-                                                .toISOString()
-                                                .split("T")[0]
+                                              date === getLocalDateString()
                                                 ? newStatus
                                                 : s.status,
                                             attendanceHistory: {
@@ -7899,6 +8435,72 @@ export default function App() {
   } | null>(null);
   const [showSyncConsent, setShowSyncConsent] = useState(false);
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
+
+  // Local notification setup for calendar events 1 hour before start
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+
+    const checkUpcomingEvents = () => {
+      if (!appData || !appData.googleCalendarEvents || appData.googleCalendarEvents.length === 0) return;
+      if (Notification.permission !== "granted") return;
+
+      const now = Date.now();
+      let notifiedIds: string[] = [];
+      try {
+        const stored = localStorage.getItem("horizonte_notified_events");
+        notifiedIds = stored ? JSON.parse(stored) : [];
+      } catch (e) {
+        notifiedIds = [];
+      }
+
+      const updatedNotified = [...notifiedIds];
+      let hasNewNotified = false;
+
+      appData.googleCalendarEvents.forEach((event) => {
+        if (!event.dateIso) return;
+        const eventTime = new Date(event.dateIso).getTime();
+        const diffMs = eventTime - now;
+
+        // "1 hour before" -> Starts within 1 hour (less than 60 minutes) and is in the future
+        const sixtyMinutesMs = 60 * 60 * 1000;
+        if (diffMs > 0 && diffMs <= sixtyMinutesMs) {
+          if (!updatedNotified.includes(event.id)) {
+            const timeStr = event.start || new Date(event.dateIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            try {
+              new Notification(`Lembrete de Compromisso`, {
+                body: `O evento "${event.title}" começa em breve (às ${timeStr})!`,
+                icon: "/icon-192x192.png",
+                tag: event.id,
+              });
+              updatedNotified.push(event.id);
+              hasNewNotified = true;
+            } catch (err) {
+              console.error("Failed to show browser notification:", err);
+            }
+          }
+        }
+      });
+
+      if (hasNewNotified) {
+        localStorage.setItem("horizonte_notified_events", JSON.stringify(updatedNotified));
+      }
+    };
+
+    // Run check on mount/update and then every 20 seconds
+    checkUpcomingEvents();
+    const intervalObj = setInterval(checkUpcomingEvents, 20000);
+
+    return () => clearInterval(intervalObj);
+  }, [appData?.googleCalendarEvents]);
+
   const [showGradeDialog, setShowGradeDialog] = useState(false);
   const [currentViewRole, setCurrentViewRole] = useState<"teacher" | "student">(
     "teacher",

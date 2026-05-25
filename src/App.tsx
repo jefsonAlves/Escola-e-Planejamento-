@@ -487,6 +487,7 @@ interface AppState {
   schoolState?: string;
   teacherName: string; // Used as main user name for backward compatibility
   teacherSubject?: string;
+  isApprovedManager?: boolean;
   role?:
     | "teacher"
     | "student"
@@ -740,6 +741,9 @@ const RegistrationScreen = ({
           googleSynced: true,
           classes: [],
           occurrences: [],
+          isApprovedManager:
+            (role === "school_director" || role === "school_secretary") &&
+            schoolRegisterMode === "new",
         });
       } else {
         setStep(2);
@@ -1168,6 +1172,9 @@ const RegistrationScreen = ({
                         googleSynced: true,
                         classes: [],
                         occurrences: [],
+                        isApprovedManager:
+                          (role === "school_director" || role === "school_secretary") &&
+                          schoolRegisterMode === "new",
                       });
                       
                       if (onShowNotification) onShowNotification("Conta cadastrada com sucesso e vinculada ao Google!", "info");
@@ -7451,63 +7458,55 @@ const SettingsScreen = ({
         }
       });
 
-      // 4. Create Google Spreadsheet
-      const sheetTitle = `Horizonte Frequência - ${new Date().toLocaleDateString("pt-BR").replace(/\//g, "-")}`;
-      const createSheetRes = await fetch(
-        "https://sheets.googleapis.com/v4/spreadsheets",
+      // 4. Convert to CSV
+      let csvContent = "\uFEFF--- Frequências ---\n";
+      attendanceRows.forEach((row) => {
+        csvContent += row.map(cell => `"${(cell || "").replace(/"/g, '""')}"`).join(",") + "\n";
+      });
+      csvContent += "\n--- Notas ---\n";
+      gradesRows.forEach((row) => {
+        csvContent += row.map(cell => `"${(cell || "").replace(/"/g, '""')}"`).join(",") + "\n";
+      });
+
+      // 5. Upload File to Google Drive
+      const boundary = "-------314159265358979323846";
+      const delimiter = "\r\n--" + boundary + "\r\n";
+      const close_delim = "\r\n--" + boundary + "--";
+
+      const metadata = {
+        name: `Horizonte_Relatorio_Consolidado_${new Date().toLocaleDateString("pt-BR").replace(/\//g, "-")}.csv`,
+        mimeType: "text/csv"
+      };
+
+      const multipartRequestBody =
+        delimiter +
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+        JSON.stringify(metadata) +
+        delimiter +
+        "Content-Type: text/csv; charset=UTF-8\r\n\r\n" +
+        csvContent +
+        close_delim;
+
+      const uploadRes = await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
         {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
+            "Content-Type": `multipart/related; boundary=${boundary}`,
           },
-          body: JSON.stringify({
-            properties: { title: sheetTitle },
-            sheets: [
-              { properties: { title: "Frequências" } },
-              { properties: { title: "Notas" } },
-            ],
-          }),
-        },
+          body: multipartRequestBody,
+        }
       );
 
-      if (!createSheetRes.ok) {
+      if (!uploadRes.ok) {
         throw new Error(
-          "Falha ao criar planilha. Verifique as permissões do Google.",
+          "Falha ao criar arquivo CSV. Verifique as permissões do Google.",
         );
       }
 
-      const sheetData = await createSheetRes.json();
-      const spreadsheetId = sheetData.spreadsheetId;
-
-      // 5. Populate Sheets with Data
-      const batchUpdateRes = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            valueInputOption: "USER_ENTERED",
-            data: [
-              {
-                range: "Frequências!A1",
-                values: attendanceRows,
-              },
-              {
-                range: "Notas!A1",
-                values: gradesRows,
-              },
-            ],
-          }),
-        },
-      );
-
-      if (!batchUpdateRes.ok) {
-        throw new Error("Falha ao salvar dados na base do Google Sheets.");
-      }
+      const fileData = await uploadRes.json();
+      const fileId = fileData.id;
 
       // 6. Find or Create "Horizonte" folder
       let folderId = null;
@@ -7519,7 +7518,7 @@ const SettingsScreen = ({
           `https://www.googleapis.com/drive/v3/files?q=${q}`,
           {
             headers: { Authorization: `Bearer ${token}` },
-          },
+          }
         );
         const folderSearchData = await folderSearchRes.json();
 
@@ -7538,7 +7537,7 @@ const SettingsScreen = ({
                 name: "Horizonte",
                 mimeType: "application/vnd.google-apps.folder",
               }),
-            },
+            }
           );
           const createFolderData = await createFolderRes.json();
           folderId = createFolderData.id;
@@ -7547,33 +7546,33 @@ const SettingsScreen = ({
         console.warn("Could not handle Horizonte folder", err);
       }
 
-      // 7. Move Spreadsheet to "Horizonte" folder
+      // 7. Move CSV to "Horizonte" folder
       if (folderId) {
         try {
           const fileRes = await fetch(
-            `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?fields=parents`,
+            `https://www.googleapis.com/drive/v3/files/${fileId}?fields=parents`,
             {
               headers: { Authorization: `Bearer ${token}` },
-            },
+            }
           );
-          const fileData = await fileRes.json();
-          const previousParents = fileData.parents
-            ? fileData.parents.join(",")
+          const currentFileData = await fileRes.json();
+          const previousParents = currentFileData.parents
+            ? currentFileData.parents.join(",")
             : "";
 
           await fetch(
-            `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=${previousParents}`,
+            `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${folderId}&removeParents=${previousParents}`,
             {
               method: "PATCH",
               headers: { Authorization: `Bearer ${token}` },
-            },
+            }
           );
         } catch (err) {
           console.warn("Could not move file to folder", err);
         }
       }
 
-      onShowNotification("Backup local e Google Drive salvos!", "info");
+      onShowNotification("Backup local e Google Drive salvos como CSV!", "info");
     } catch (err: any) {
       console.error(err);
       alert(
@@ -7631,7 +7630,7 @@ const SettingsScreen = ({
                   Salvar no Google Drive
                 </p>
                 <p className="text-[10px] text-slate-500">
-                  Faz o upload das frequências como CSV na nuvem
+                  Exporta histórico de frequências e notas num único CSV
                 </p>
               </div>
             </div>
@@ -7899,10 +7898,14 @@ const AdminScreen = ({
   appData,
   onUpdateField,
   onShowNotification,
+  isSuperAdmin,
+  isGestorEscolar,
 }: {
   appData: AppState;
   onUpdateField: (field: string, value: any) => void;
   onShowNotification: (msg: string, type: "info" | "critical") => void;
+  isSuperAdmin?: boolean;
+  isGestorEscolar?: boolean;
 }) => {
   const [activeTab, setActiveTab] = useState<
     "access" | "billing" | "notices" | "api_keys"
@@ -7951,9 +7954,28 @@ const AdminScreen = ({
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const { collection, query, where, getCountFromServer } =
+        const { collection, query, where, getCountFromServer, getDocs } =
           await import("firebase/firestore");
         const coll = collection(db, "users");
+        
+        if (isGestorEscolar && !isSuperAdmin) {
+          // Gestor Escolar gets only their school users
+          const qSchool = query(coll, where("schoolName", "==", appData.schoolName));
+          const allDocs = await getDocs(qSchool);
+          const uList: any[] = [];
+          let tCountLocal = 0;
+          allDocs.forEach((d) => {
+            const data = d.data();
+            uList.push({ id: d.id, ...data });
+            if (data.role === "teacher" || data.role === "both") tCountLocal++;
+          });
+          setAdminUserList(uList);
+          setTotalUsersCount(uList.length);
+          setTotalTeachersCount(tCountLocal);
+          return;
+        }
+
+        // Super Admin gets everything
         const snapshot = await getCountFromServer(coll);
         const ct = snapshot.data().count;
         setTotalUsersCount(ct > 224 ? ct : 224); // Show at least 224 as per request
@@ -7963,7 +7985,6 @@ const AdminScreen = ({
         let tCount = snapshotTeachers.data().count;
 
         try {
-          const { getDocs } = await import("firebase/firestore");
           const allDocs = await getDocs(coll);
           const uList: any[] = [];
           let tCountLocal = 0;
@@ -8325,12 +8346,6 @@ const AdminScreen = ({
     });
   };
 
-  const isJefsonEmail =
-    auth.currentUser?.email === "jefson.ti@gmail.com" ||
-    auth.currentUser?.email === "jefson.s.a7@gmail.com";
-  const isJefsonCpf = (appData.cpf || "").replace(/\D/g, "") === "00995845301";
-  const isSuperAdmin = isJefsonEmail || isJefsonCpf;
-
   return (
     <div className="space-y-6 pb-24">
       {isSuperAdmin && (
@@ -8364,10 +8379,10 @@ const AdminScreen = ({
       )}
 
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-        {(["access", "billing", "notices", "api_keys"] as const).map((tab) => (
+        {(isSuperAdmin ? (["access", "billing", "notices", "api_keys"] as const) : (["access"] as const)).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => setActiveTab(tab as any)}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
               activeTab === tab
                 ? "bg-primary text-white shadow-lg shadow-primary/20"
@@ -8435,19 +8450,22 @@ const AdminScreen = ({
               </div>
             </div>
           </div>
-          <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-primary">
-                  Jefson (Admin Principal)
-                </span>
-                <p className="text-[10px] text-slate-400">
-                  jefson.s.a7@gmail.com • Root Access
-                </p>
+          
+          {isSuperAdmin && (
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold text-primary">
+                    Jefson (Admin Principal)
+                  </span>
+                  <p className="text-[10px] text-slate-400">
+                    jefson.s.a7@gmail.com • Root Access
+                  </p>
+                </div>
+                <ShieldCheck className="w-4 h-4 text-primary" />
               </div>
-              <ShieldCheck className="w-4 h-4 text-primary" />
             </div>
-          </div>
+          )}
 
           {/* User List */}
           <div className="mt-8 border-t border-slate-100 dark:border-slate-700 pt-6">
@@ -8482,13 +8500,34 @@ const AdminScreen = ({
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex flex-col items-end gap-1">
                     <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
                       {u.role || "student"}
                     </span>
                     <p className="text-[9px] text-slate-400 mt-1">
                       Escola: {u.schoolName || "N/A"}
                     </p>
+                    {(isSuperAdmin || isGestorEscolar) && u.email !== "jefson.ti@gmail.com" && (
+                      <button
+                        onClick={async () => {
+                          if (confirm("Alterar status de gestor deste usuário?")) {
+                            try {
+                              const { updateDoc, doc } = await import("firebase/firestore");
+                              await updateDoc(doc(db, "users", u.id), {
+                                isApprovedManager: !u.isApprovedManager
+                              });
+                              onShowNotification("Status atualizado!", "info");
+                              setAdminUserList(adminUserList.map(item => item.id === u.id ? { ...item, isApprovedManager: !item.isApprovedManager } : item));
+                            } catch(e) {
+                              onShowNotification("Erro. Permissão insuficiente?", "critical");
+                            }
+                          }
+                        }}
+                        className={`px-2 py-1 text-[9px] font-bold rounded tracking-wide transition-colors ${u.isApprovedManager ? "bg-primary/20 text-primary hover:bg-primary/30" : "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-600"}`}
+                      >
+                        {u.isApprovedManager ? "Restringir Gestor" : "Promover Gestor"}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -9473,7 +9512,7 @@ export default function App() {
     localStorage.getItem("google_access_token"),
   );
 
-  const isAdminUser = () => {
+  const isRootUser = () => {
     if (!appData) return false;
     const isJefsonEmail =
       auth.currentUser?.email === "jefson.ti@gmail.com" ||
@@ -9481,6 +9520,10 @@ export default function App() {
     const isJefsonCpf =
       (appData.cpf || "").replace(/\D/g, "") === "00995845301";
     return isJefsonEmail || isJefsonCpf;
+  };
+
+  const isAdminUser = () => {
+    return isRootUser() || !!appData?.isApprovedManager;
   };
 
   useEffect(() => {

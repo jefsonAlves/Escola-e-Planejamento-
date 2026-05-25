@@ -16,7 +16,7 @@ export interface User extends BaseRecord {
   email: string;
   displayName: string;
   photoURL: string;
-  role: 'teacher' | 'student' | 'both';
+  role: string;
 }
 
 export interface School extends BaseRecord {

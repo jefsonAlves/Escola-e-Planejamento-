@@ -66,6 +66,9 @@ import {
   ArrowRightLeft,
   Database,
   DownloadCloud,
+  Bell,
+  Shield,
+  LogOut,
 } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 import { auth, db } from "./lib/firebase";
@@ -145,6 +148,8 @@ interface StudentEvaluation {
   points: number;
   date: string;
   bimester?: string;
+  grade?: string;
+  notes?: string;
 }
 
 interface Student {
@@ -266,6 +271,7 @@ const Header = ({
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains("dark"),
   );
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const toggleTheme = () => {
     if (isDark) {
@@ -292,13 +298,70 @@ const Header = ({
           {title}
         </h1>
       </div>
-      <div className="flex items-center gap-3 w-auto flex-nowrap shrink-0">
+      <div className="flex items-center gap-3 w-auto flex-nowrap shrink-0 relative">
         <button
           onClick={toggleTheme}
           className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors active:scale-90 text-primary"
         >
           {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors active:scale-90 text-primary relative"
+          >
+            <Bell className="w-5 h-5" />
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-800" />
+          </button>
+
+          <AnimatePresence>
+            {showNotifications && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowNotifications(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute top-12 right-0 w-72 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 origin-top-right"
+                >
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-3 text-sm">
+                    Notificações e Recados
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="bg-primary/5 p-3 rounded-xl border border-primary/10">
+                      <p className="text-[10px] font-bold text-primary uppercase mb-1 drop-shadow-sm">
+                        Recado da Escola
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-300">
+                        Reunião de pais e mestres agendada para a próxima
+                        sexta-feira as 19:00.
+                      </p>
+                    </div>
+                    <div className="bg-amber-500/5 p-3 rounded-xl border border-amber-500/10">
+                      <p className="text-[10px] font-bold text-amber-500 uppercase mb-1 drop-shadow-sm">
+                        Sistema
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-300">
+                        Sincronização com o Google Drive ativada com sucesso.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowNotifications(false)}
+                    className="w-full mt-3 text-center text-xs font-bold text-primary hover:underline"
+                  >
+                    Fechar
+                  </button>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
+
         {onSettings && (
           <button
             onClick={onSettings}
@@ -421,7 +484,16 @@ interface AppState {
   schoolState?: string;
   teacherName: string; // Used as main user name for backward compatibility
   teacherSubject?: string;
-  role?: "teacher" | "student" | "both" | "school_director" | "school_secretary" | "superadmin" | "guardian" | "coordinator" | string;
+  role?:
+    | "teacher"
+    | "student"
+    | "both"
+    | "school_director"
+    | "school_secretary"
+    | "superadmin"
+    | "guardian"
+    | "coordinator"
+    | string;
   avatarUrl?: string;
   birthDate?: string;
   cpf?: string;
@@ -447,6 +519,7 @@ interface GoogleEvent {
   isCustom?: boolean;
   dateIso?: string;
   syncedToGoogle?: boolean;
+  notes?: string;
 }
 
 interface GoogleCourseWork {
@@ -552,13 +625,13 @@ const RegistrationScreen = ({
   onShowNotification?: (msg: string, type: "critical" | "info") => void;
 }) => {
   const [step, setStep] = useState(0); // step 0 is for role selection
-  const [role, setRole] = useState<"teacher" | "student" | "both" | "school_director" | "school_secretary">("teacher");
+  const [role, setRole] = useState<
+    "teacher" | "student" | "both" | "school_director" | "school_secretary" | "guardian"
+  >("teacher");
   const [schoolName, setSchoolName] = useState("");
   const [schoolCity, setSchoolCity] = useState("");
   const [schoolState, setSchoolState] = useState("");
-  const [teacherName, setTeacherName] = useState(
-    auth.currentUser?.displayName || "",
-  );
+  const [teacherName, setTeacherName] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [cpf, setCpf] = useState("");
   const [password, setPassword] = useState("");
@@ -570,8 +643,12 @@ const RegistrationScreen = ({
   const [activeClassId, setActiveClassId] = useState<string | null>(null);
   const [newStudentName, setNewStudentName] = useState("");
 
-  const [schoolRegisterMode, setSchoolRegisterMode] = useState<"select" | "new">("select");
-  const [registeredSchoolsList, setRegisteredSchoolsList] = useState<string[]>([]);
+  const [schoolRegisterMode, setSchoolRegisterMode] = useState<
+    "select" | "new"
+  >("select");
+  const [registeredSchoolsList, setRegisteredSchoolsList] = useState<string[]>(
+    [],
+  );
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
 
   useEffect(() => {
@@ -590,7 +667,10 @@ const RegistrationScreen = ({
             }
           });
         } catch (schoolErr) {
-          console.warn("Could not fetch schools from schools collection:", schoolErr);
+          console.warn(
+            "Could not fetch schools from schools collection:",
+            schoolErr,
+          );
         }
 
         // Fallback to querying user collection if schools collection was empty/failed
@@ -605,7 +685,10 @@ const RegistrationScreen = ({
               }
             });
           } catch (usersErr) {
-            console.log("Expected user listing fallback failure due to safe permission-denied:", usersErr);
+            console.log(
+              "Expected user listing fallback failure due to safe permission-denied:",
+              usersErr,
+            );
           }
         }
 
@@ -630,10 +713,19 @@ const RegistrationScreen = ({
     if (step === 0 && role) setStep(1);
     else if (step === 1 && schoolName && teacherName && birthDate) {
       if (schoolRegisterMode === "new" && (!schoolCity || !schoolState)) {
-         if (onShowNotification) onShowNotification("Por favor, informe a cidade e o estado da instituição.", "info");
-         return;
+        if (onShowNotification)
+          onShowNotification(
+            "Por favor, informe a cidade e o estado da instituição.",
+            "info",
+          );
+        return;
       }
-      if (role === "student" || role === "school_director" || role === "school_secretary") {
+      if (
+        role === "student" ||
+        role === "school_director" ||
+        role === "school_secretary" ||
+        role === "guardian"
+      ) {
         onComplete({
           schoolName,
           teacherName,
@@ -811,6 +903,25 @@ const RegistrationScreen = ({
                 </button>
 
                 <button
+                  onClick={() => setRole("guardian")}
+                  className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "guardian" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
+                >
+                  <div
+                    className={`p-3 rounded-xl ${role === "guardian" ? "bg-primary text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}
+                  >
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800 dark:text-slate-100">
+                      Sou Pais/Responsável
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Acompanhar meus filhos
+                    </p>
+                  </div>
+                </button>
+
+                <button
                   onClick={() => setRole("school_director")}
                   className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "school_director" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
                 >
@@ -894,15 +1005,20 @@ const RegistrationScreen = ({
                   {isLoadingSchools ? (
                     <div className="py-2.5 flex items-center justify-center gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg max-w-full">
                       <RefreshCw className="w-4 h-4 text-primary animate-spin" />
-                      <span className="text-xs text-slate-500 font-medium">Buscando escolas...</span>
+                      <span className="text-xs text-slate-500 font-medium">
+                        Buscando escolas...
+                      </span>
                     </div>
-                  ) : schoolRegisterMode === "select" && registeredSchoolsList.length > 0 ? (
+                  ) : schoolRegisterMode === "select" &&
+                    registeredSchoolsList.length > 0 ? (
                     <select
                       value={schoolName}
                       onChange={(e) => setSchoolName(e.target.value)}
                       className="w-full bg-slate-50 dark:bg-slate-800/100 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
                     >
-                      <option value="" disabled>-- Selecione sua Escola --</option>
+                      <option value="" disabled>
+                        -- Selecione sua Escola --
+                      </option>
                       {registeredSchoolsList.map((school) => (
                         <option key={school} value={school}>
                           {school}
@@ -920,7 +1036,9 @@ const RegistrationScreen = ({
                       />
                       <div className="flex gap-4">
                         <div className="flex-1 space-y-1">
-                          <label className="text-[10px] font-bold text-primary uppercase ml-1">Cidade</label>
+                          <label className="text-[10px] font-bold text-primary uppercase ml-1">
+                            Cidade
+                          </label>
                           <input
                             type="text"
                             value={schoolCity}
@@ -930,8 +1048,10 @@ const RegistrationScreen = ({
                           />
                         </div>
                         <div className="w-24 space-y-1">
-                           <label className="text-[10px] font-bold text-primary uppercase ml-1">Estado</label>
-                           <input
+                          <label className="text-[10px] font-bold text-primary uppercase ml-1">
+                            Estado
+                          </label>
+                          <input
                             type="text"
                             value={schoolState}
                             onChange={(e) => setSchoolState(e.target.value)}
@@ -1770,10 +1890,18 @@ const TeacherDashboard = ({
     () => (appData.classes || [])[0]?.id || "",
   );
 
-  const currentChartClassId = selectedChartClassId || (appData.classes || [])[0]?.id || "";
-  const selectedClassObj = (appData.classes || []).find((c) => c.id === currentChartClassId);
+  const currentChartClassId =
+    selectedChartClassId || (appData.classes || [])[0]?.id || "";
+  const selectedClassObj = (appData.classes || []).find(
+    (c) => c.id === currentChartClassId,
+  );
 
-  const bimestersList = ["1º Bimestre", "2º Bimestre", "3º Bimestre", "4º Bimestre"];
+  const bimestersList = [
+    "1º Bimestre",
+    "2º Bimestre",
+    "3º Bimestre",
+    "4º Bimestre",
+  ];
   let chartHasData = false;
   const chartData = bimestersList.map((bimester) => {
     let sum = 0;
@@ -1782,7 +1910,10 @@ const TeacherDashboard = ({
       selectedClassObj.students.forEach((student) => {
         if (student.evaluations) {
           student.evaluations.forEach((evalItem) => {
-            if (evalItem.bimester === bimester && typeof evalItem.points === "number") {
+            if (
+              evalItem.bimester === bimester &&
+              typeof evalItem.points === "number"
+            ) {
               sum += evalItem.points;
               count++;
             }
@@ -1793,7 +1924,7 @@ const TeacherDashboard = ({
     if (count > 0) chartHasData = true;
     return {
       bimester: bimester.split(" ")[0], // "1º", "2º", etc.
-      "Média": count > 0 ? parseFloat((sum / count).toFixed(2)) : 0,
+      Média: count > 0 ? parseFloat((sum / count).toFixed(2)) : 0,
       count,
     };
   });
@@ -2072,11 +2203,15 @@ const TeacherDashboard = ({
           </div>
           <div>
             <select
-              value={selectedChartClassId || (appData.classes || [])[0]?.id || ""}
+              value={
+                selectedChartClassId || (appData.classes || [])[0]?.id || ""
+              }
               onChange={(e) => setSelectedChartClassId(e.target.value)}
               className="w-full sm:w-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold py-2 px-3 rounded-xl outline-none focus:border-primary shadow-sm"
             >
-              <option value="" disabled>--- Selecione uma Turma ---</option>
+              <option value="" disabled>
+                --- Selecione uma Turma ---
+              </option>
               {(appData.classes || []).map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -2091,8 +2226,15 @@ const TeacherDashboard = ({
             {chartHasData ? (
               <div className="pt-2">
                 <ResponsiveContainer width="100%" height={240}>
-                  <LineChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
+                  <LineChart
+                    data={chartData}
+                    margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      opacity={0.1}
+                    />
                     <XAxis
                       dataKey="bimester"
                       stroke="#94a3b8"
@@ -2407,7 +2549,9 @@ const AttendanceScreen = ({
       try {
         const attendances = await dexieDb.attendance.toArray();
         console.log("[Dexie] Todos os registros de frequência:", attendances);
-        const may19to21 = attendances.filter(a => a.date >= "2026-05-19" && a.date <= "2026-05-21");
+        const may19to21 = attendances.filter(
+          (a) => a.date >= "2026-05-19" && a.date <= "2026-05-21",
+        );
         console.log("[Dexie] Registros entre 19 e 21 de maio:", may19to21);
       } catch (err) {
         console.error("Erro ao ler dexieDb.attendance", err);
@@ -2416,14 +2560,13 @@ const AttendanceScreen = ({
     fetchDexieLogs();
   }, []);
 
-  const [attendanceDate, setAttendanceDate] = useState(
-    () => getLocalDateString(),
+  const [attendanceDate, setAttendanceDate] = useState(() =>
+    getLocalDateString(),
   );
 
   const selectedDateObj = new Date(attendanceDate + "T12:00:00");
   const selectedDayName = getDayName(selectedDateObj.getDay());
-  const isSelectedToday =
-    attendanceDate === getLocalDateString();
+  const isSelectedToday = attendanceDate === getLocalDateString();
 
   const today = new Date();
   const currentHour = today.getHours();
@@ -2471,7 +2614,9 @@ const AttendanceScreen = ({
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<
     string | null
   >(() => getLocalDateString());
-  const [calendarFilter, setCalendarFilter] = useState<"all" | "absent" | "present" | "late">("all");
+  const [calendarFilter, setCalendarFilter] = useState<
+    "all" | "absent" | "present" | "late"
+  >("all");
 
   const activeClass = classes.find((c) => c.id === activeClassId);
   const students = activeClass?.students || [];
@@ -2660,7 +2805,11 @@ const AttendanceScreen = ({
           {launchedDates.length > 0 && (
             <div className="space-y-2 mt-2">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                <RefreshCw className="w-3 h-3 text-primary animate-spin" style={{ animationDuration: "6s" }} /> Chamadas Realizadas (Toque para recuperar/ajustar)
+                <RefreshCw
+                  className="w-3 h-3 text-primary animate-spin"
+                  style={{ animationDuration: "6s" }}
+                />{" "}
+                Chamadas Realizadas (Toque para recuperar/ajustar)
               </h4>
               <div className="flex gap-2.5 overflow-x-auto pb-2 custom-scrollbar scroll-smooth no-scrollbar">
                 {launchedDates.map((date) => {
@@ -2670,8 +2819,11 @@ const AttendanceScreen = ({
                     month: "2-digit",
                     year: "2-digit",
                   });
-                  const dayNameShort = getDayName(dObj.getDay()).substring(0, 3);
-                  
+                  const dayNameShort = getDayName(dObj.getDay()).substring(
+                    0,
+                    3,
+                  );
+
                   const datePresents = (activeClass?.students || []).filter(
                     (s) => s.attendanceHistory?.[date] === "present",
                   ).length;
@@ -2702,26 +2854,50 @@ const AttendanceScreen = ({
                         <span className="font-extrabold text-xs tracking-tight">
                           {formattedDate}
                         </span>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase ${
-                          isCurrentlyActiveDate
-                            ? "bg-white/20 text-white"
-                            : "bg-slate-200/60 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
-                        }`}>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase ${
+                            isCurrentlyActiveDate
+                              ? "bg-white/20 text-white"
+                              : "bg-slate-200/60 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+                          }`}
+                        >
                           {dayNameShort}
                         </span>
                       </div>
                       <div className="flex gap-1.5 mt-0.5 text-[9px] font-bold font-mono">
-                        <span className={dateAbsents > 0 ? (isCurrentlyActiveDate ? "text-white" : "text-red-500") : "opacity-60"}>
+                        <span
+                          className={
+                            dateAbsents > 0
+                              ? isCurrentlyActiveDate
+                                ? "text-white"
+                                : "text-red-500"
+                              : "opacity-60"
+                          }
+                        >
                           F:{dateAbsents}
                         </span>
                         <span className="opacity-40">•</span>
-                        <span className={datePresents > 0 ? (isCurrentlyActiveDate ? "text-white" : "text-emerald-500") : "opacity-60"}>
+                        <span
+                          className={
+                            datePresents > 0
+                              ? isCurrentlyActiveDate
+                                ? "text-white"
+                                : "text-emerald-500"
+                              : "opacity-60"
+                          }
+                        >
                           P:{datePresents}
                         </span>
                         {dateLates > 0 && (
                           <>
                             <span className="opacity-40">•</span>
-                            <span className={isCurrentlyActiveDate ? "text-white" : "text-amber-500"}>
+                            <span
+                              className={
+                                isCurrentlyActiveDate
+                                  ? "text-white"
+                                  : "text-amber-500"
+                              }
+                            >
                               A:{dateLates}
                             </span>
                           </>
@@ -2875,7 +3051,7 @@ const AttendanceScreen = ({
                       >
                         <Check className="w-4 h-4" />
                       </button>
-                      
+
                       <button
                         title="Marcar Falta"
                         onClick={(e) => {
@@ -3134,7 +3310,8 @@ const AttendanceScreen = ({
 
                   if (hasDayRecords) {
                     const allForDay = (activeClass?.students || []).map((s) => {
-                      const sStatus = s.attendanceHistory?.[selectedCalendarDate] || "none";
+                      const sStatus =
+                        s.attendanceHistory?.[selectedCalendarDate] || "none";
                       return { ...s, currentStatus: sStatus };
                     });
 
@@ -3214,7 +3391,8 @@ const AttendanceScreen = ({
                                 }`}
                               >
                                 <div className="flex items-center gap-3">
-                                  {student.avatar && student.avatar.trim() !== "" ? (
+                                  {student.avatar &&
+                                  student.avatar.trim() !== "" ? (
                                     <img
                                       src={student.avatar}
                                       alt={student.name}
@@ -3237,7 +3415,8 @@ const AttendanceScreen = ({
                                             ? "bg-red-50 text-red-500 dark:bg-red-500/15"
                                             : student.currentStatus === "late"
                                               ? "bg-amber-50 text-amber-600 dark:bg-amber-500/15"
-                                              : student.currentStatus === "present"
+                                              : student.currentStatus ===
+                                                  "present"
                                                 ? "bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15"
                                                 : "bg-slate-100 text-slate-400 dark:bg-slate-800"
                                         }`}
@@ -3246,12 +3425,16 @@ const AttendanceScreen = ({
                                           ? "Falta"
                                           : student.currentStatus === "late"
                                             ? "Atraso"
-                                            : student.currentStatus === "present"
+                                            : student.currentStatus ===
+                                                "present"
                                               ? "Presente"
                                               : "Sem Chamada"}
                                       </span>
                                       {student.specialNeeds?.map((need) => (
-                                        <SpecialNeedBadge key={need} type={need} />
+                                        <SpecialNeedBadge
+                                          key={need}
+                                          type={need}
+                                        />
                                       ))}
                                     </div>
                                   </div>
@@ -3446,21 +3629,26 @@ const OccurrenceScreen = ({
     classes?.[0]?.id || null,
   );
 
-  if (!student && classes && onSelectStudent && occurrences) { // passed occurrences are now needed here
+  if (!student && classes && onSelectStudent && occurrences) {
+    // passed occurrences are now needed here
     let studentsToShow = [];
     if (studentSearch.trim() !== "") {
-       const searchLower = studentSearch.trim().toLowerCase();
-       studentsToShow = classes.flatMap(c => c.students).filter(s => s.name.toLowerCase().includes(searchLower)).sort((a,b) => a.name.localeCompare(b.name));
+      const searchLower = studentSearch.trim().toLowerCase();
+      studentsToShow = classes
+        .flatMap((c) => c.students)
+        .filter((s) => s.name.toLowerCase().includes(searchLower))
+        .sort((a, b) => a.name.localeCompare(b.name));
     } else {
-       const activeClass = classes.find((c) => c.id === activeClassId);
-       studentsToShow = [...(activeClass?.students || [])].sort((a, b) =>
-         a.name.localeCompare(b.name),
-       );
+      const activeClass = classes.find((c) => c.id === activeClassId);
+      studentsToShow = [...(activeClass?.students || [])].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
     }
 
     // Find students with actual occurrences
-    const studentsWithOccurrences = classes.flatMap(c => c.students)
-      .filter(s => occurrences.some((o: any) => o.studentId === s.id))
+    const studentsWithOccurrences = classes
+      .flatMap((c) => c.students)
+      .filter((s) => occurrences.some((o: any) => o.studentId === s.id))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return (
@@ -3473,7 +3661,10 @@ const OccurrenceScreen = ({
             </p>
           </div>
           {onCancel && (
-            <button onClick={onCancel} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
+            <button
+              onClick={onCancel}
+              className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"
+            >
               <LogOut className="w-5 h-5 rotate-180" />
             </button>
           )}
@@ -3491,34 +3682,39 @@ const OccurrenceScreen = ({
         </div>
 
         {studentSearch.trim() === "" && studentsWithOccurrences.length > 0 && (
-           <div className="space-y-3">
-             <h3 className="text-xs font-extrabold text-amber-500 uppercase tracking-widest pl-1">Alunos Advertidos Anteriormente</h3>
-             <div className="glass-card p-4 rounded-xl space-y-1">
-               {studentsWithOccurrences.map((s) => {
-                 const occCount = occurrences.filter((o:any) => o.studentId === s.id).length;
-                 return (
-                   <div
-                     key={`warned-${s.id}`}
-                     onClick={() => onSelectStudent(s.id)}
-                     className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-xl cursor-pointer transition-colors group"
-                   >
-                     <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
-                       <AlertOctagon className="w-5 h-5 text-amber-500" />
-                     </div>
-                     <div>
-                       <p className="font-bold text-sm text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">
-                         {s.name.toUpperCase()}
-                       </p>
-                       <p className="text-xs text-amber-500 font-bold">
-                         {occCount} {occCount === 1 ? 'advertência' : 'advertências'}
-                       </p>
-                     </div>
-                     <ChevronRight className="w-4 h-4 text-slate-300 ml-auto group-hover:text-primary transition-colors" />
-                   </div>
-                 );
-               })}
-             </div>
-           </div>
+          <div className="space-y-3">
+            <h3 className="text-xs font-extrabold text-amber-500 uppercase tracking-widest pl-1">
+              Alunos Advertidos Anteriormente
+            </h3>
+            <div className="glass-card p-4 rounded-xl space-y-1">
+              {studentsWithOccurrences.map((s) => {
+                const occCount = occurrences.filter(
+                  (o: any) => o.studentId === s.id,
+                ).length;
+                return (
+                  <div
+                    key={`warned-${s.id}`}
+                    onClick={() => onSelectStudent(s.id)}
+                    className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-xl cursor-pointer transition-colors group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 border border-slate-200 dark:border-slate-700">
+                      <AlertOctagon className="w-5 h-5 text-amber-500" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-sm text-slate-700 dark:text-slate-200 group-hover:text-primary transition-colors">
+                        {s.name.toUpperCase()}
+                      </p>
+                      <p className="text-xs text-amber-500 font-bold">
+                        {occCount}{" "}
+                        {occCount === 1 ? "advertência" : "advertências"}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300 ml-auto group-hover:text-primary transition-colors" />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {studentSearch.trim() === "" && (
@@ -3543,7 +3739,11 @@ const OccurrenceScreen = ({
         )}
 
         <div className="space-y-2 pt-2">
-          {studentSearch.trim() !== "" && <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest pl-1">Resultados da Busca</h3>}
+          {studentSearch.trim() !== "" && (
+            <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest pl-1">
+              Resultados da Busca
+            </h3>
+          )}
           {studentsToShow.length === 0 ? (
             <p className="text-center py-12 text-slate-400 font-manrope">
               Nenhum aluno encontrado.
@@ -4028,33 +4228,44 @@ const AgendaScreen = ({
     dateStr: string;
     dayObj: Date;
   } | null>(null);
-  
+
   const [showAddReminder, setShowAddReminder] = useState(false);
   const [reminderTitle, setReminderTitle] = useState("");
   const [reminderContent, setReminderContent] = useState("");
 
   const handleCreateReminder = () => {
-     if (!reminderTitle.trim() || !selectedDayInfo || !onAddEvent) return;
-     const monthNames = [
-       "JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"
-     ];
-     const newEvent = {
-       id: "custom-" + Date.now().toString(),
-       title: reminderTitle,
-       month: monthNames[selectedDayInfo.dayObj.getMonth()],
-       day: selectedDayInfo.dayObj.getDate().toString(),
-       time: "O Dia Todo",
-       start: "09:00",
-       dateIso: selectedDayInfo.dateStr,
-       isCustom: true,
-       syncedToGoogle: false,
-       notes: reminderContent
-     };
-     onAddEvent(newEvent);
-     onShowNotification("Lembrete salvo na agenda.");
-     setReminderTitle("");
-     setReminderContent("");
-     setShowAddReminder(false);
+    if (!reminderTitle.trim() || !selectedDayInfo || !onAddEvent) return;
+    const monthNames = [
+      "JAN",
+      "FEV",
+      "MAR",
+      "ABR",
+      "MAI",
+      "JUN",
+      "JUL",
+      "AGO",
+      "SET",
+      "OUT",
+      "NOV",
+      "DEZ",
+    ];
+    const newEvent = {
+      id: "custom-" + Date.now().toString(),
+      title: reminderTitle,
+      month: monthNames[selectedDayInfo.dayObj.getMonth()],
+      day: selectedDayInfo.dayObj.getDate().toString(),
+      time: "O Dia Todo",
+      start: "09:00",
+      dateIso: selectedDayInfo.dateStr,
+      isCustom: true,
+      syncedToGoogle: false,
+      notes: reminderContent,
+    };
+    onAddEvent(newEvent);
+    onShowNotification("Lembrete salvo na agenda.");
+    setReminderTitle("");
+    setReminderContent("");
+    setShowAddReminder(false);
   };
 
   const getDaysInMonth = (year: number, month: number) =>
@@ -4119,19 +4330,24 @@ const AgendaScreen = ({
     const { dateStr, dayObj } = selectedDayInfo;
 
     // Get absent students per class
-    const absents = (appData.classes || []).map((c) => {
-      const missing = c.students.filter(
-        (s) => s.attendanceHistory && s.attendanceHistory[dateStr] === "absent"
-      );
-      return { class: c, missing };
-    }).filter(c => c.missing.length > 0);
+    const absents = (appData.classes || [])
+      .map((c) => {
+        const missing = c.students.filter(
+          (s) =>
+            s.attendanceHistory && s.attendanceHistory[dateStr] === "absent",
+        );
+        return { class: c, missing };
+      })
+      .filter((c) => c.missing.length > 0);
 
     // Get occurrences for the date
     const dStrOcc = dateStr;
-    const occs = (appData.occurrences || []).filter(o => o.date.startsWith(dStrOcc));
+    const occs = (appData.occurrences || []).filter((o) =>
+      o.date.startsWith(dStrOcc),
+    );
 
     // Get calendar events (conteúdo/eventos)
-    const evs = (appData.googleCalendarEvents || []).filter(e => {
+    const evs = (appData.googleCalendarEvents || []).filter((e) => {
       if (!e.dateIso) {
         const d = dayObj.getDate().toString();
         const dPad = d.padStart(2, "0");
@@ -4153,7 +4369,8 @@ const AgendaScreen = ({
                 Resumo do Dia
               </h3>
               <p className="text-sm text-slate-500 font-manrope">
-                {dayObj.getDate()} de {monthNames[dayObj.getMonth()]} de {dayObj.getFullYear()}
+                {dayObj.getDate()} de {monthNames[dayObj.getMonth()]} de{" "}
+                {dayObj.getFullYear()}
               </p>
             </div>
             <button
@@ -4173,11 +4390,19 @@ const AgendaScreen = ({
               <div className="space-y-3">
                 {absents.length > 0 ? (
                   absents.map((cGroup) => (
-                    <div key={cGroup.class.id} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                      <p className="font-bold text-slate-700 dark:text-slate-300 text-xs mb-2">Turma: {cGroup.class.name}</p>
+                    <div
+                      key={cGroup.class.id}
+                      className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700"
+                    >
+                      <p className="font-bold text-slate-700 dark:text-slate-300 text-xs mb-2">
+                        Turma: {cGroup.class.name}
+                      </p>
                       <ul className="space-y-1">
-                        {cGroup.missing.map(m => (
-                          <li key={m.id} className="text-xs font-manrope font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                        {cGroup.missing.map((m) => (
+                          <li
+                            key={m.id}
+                            className="text-xs font-manrope font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5"
+                          >
                             <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                             {m.name}
                           </li>
@@ -4186,7 +4411,9 @@ const AgendaScreen = ({
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-slate-500 italic">Nenhuma falta registrada.</p>
+                  <p className="text-xs text-slate-500 italic">
+                    Nenhuma falta registrada.
+                  </p>
                 )}
               </div>
             </div>
@@ -4199,21 +4426,39 @@ const AgendaScreen = ({
               <div className="space-y-2">
                 {occs.length > 0 ? (
                   occs.map((o) => {
-                    const student = (appData.classes || []).flatMap(c => c.students).find(s => s.id === o.studentId);
+                    const student = (appData.classes || [])
+                      .flatMap((c) => c.students)
+                      .find((s) => s.id === o.studentId);
                     return (
-                      <div key={o.id} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                        <p className="font-bold text-slate-700 dark:text-slate-300 text-xs">Atenção: {student?.name || "Aluno Desconhecido"}</p>
-                        <p className="text-xs text-slate-500 font-manrope mt-1">- {o.notes || o.status}</p>
+                      <div
+                        key={o.id}
+                        className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700"
+                      >
+                        <p className="font-bold text-slate-700 dark:text-slate-300 text-xs">
+                          Atenção: {student?.name || "Aluno Desconhecido"}
+                        </p>
+                        <p className="text-xs text-slate-500 font-manrope mt-1">
+                          - {o.notes || o.status}
+                        </p>
                         {o.tags && o.tags.length > 0 && (
                           <div className="flex gap-1 mt-2">
-                            {o.tags.map(t => <span key={t} className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-bold">{t}</span>)}
+                            {o.tags.map((t) => (
+                              <span
+                                key={t}
+                                className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-bold"
+                              >
+                                {t}
+                              </span>
+                            ))}
                           </div>
                         )}
                       </div>
-                    )
+                    );
                   })
                 ) : (
-                  <p className="text-xs text-slate-500 italic">Nenhuma ocorrência neste dia.</p>
+                  <p className="text-xs text-slate-500 italic">
+                    Nenhuma ocorrência neste dia.
+                  </p>
                 )}
               </div>
             </div>
@@ -4225,59 +4470,73 @@ const AgendaScreen = ({
                   Conteúdo Aplicado / Agenda
                 </h4>
                 {!showAddReminder && (
-                   <button
-                     onClick={() => setShowAddReminder(true)}
-                     className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-1 rounded-lg uppercase tracking-wider hover:bg-primary/20 transition-colors"
-                   >
-                     + Lembrete
-                   </button>
+                  <button
+                    onClick={() => setShowAddReminder(true)}
+                    className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-1 rounded-lg uppercase tracking-wider hover:bg-primary/20 transition-colors"
+                  >
+                    + Lembrete
+                  </button>
                 )}
               </div>
 
               {showAddReminder && (
                 <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 mb-4 animate-in fade-in slide-in-from-top-2">
-                   <input 
-                     type="text" 
-                     placeholder="Título do Lembrete ou Aula..." 
-                     value={reminderTitle}
-                     onChange={(e) => setReminderTitle(e.target.value)}
-                     className="w-full bg-white dark:bg-slate-800 text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:border-primary mb-2 font-medium"
-                   />
-                   <textarea
-                     placeholder="Conteúdo, matéria, ou notas adicionais..."
-                     value={reminderContent}
-                     onChange={(e) => setReminderContent(e.target.value)}
-                     className="w-full bg-white dark:bg-slate-800 text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:border-primary mb-3 min-h-[80px]"
-                   />
-                   <div className="flex gap-2">
-                     <button
-                       onClick={handleCreateReminder}
-                       disabled={!reminderTitle.trim()}
-                       className="flex-1 bg-primary text-white text-xs font-bold py-2 rounded-lg disabled:opacity-50"
-                     >
-                       Salvar
-                     </button>
-                     <button
-                       onClick={() => setShowAddReminder(false)}
-                       className="flex-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold py-2 rounded-lg"
-                     >
-                       Cancelar
-                     </button>
-                   </div>
+                  <input
+                    type="text"
+                    placeholder="Título do Lembrete ou Aula..."
+                    value={reminderTitle}
+                    onChange={(e) => setReminderTitle(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-800 text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:border-primary mb-2 font-medium"
+                  />
+                  <textarea
+                    placeholder="Conteúdo, matéria, ou notas adicionais..."
+                    value={reminderContent}
+                    onChange={(e) => setReminderContent(e.target.value)}
+                    className="w-full bg-white dark:bg-slate-800 text-sm p-3 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:border-primary mb-3 min-h-[80px]"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleCreateReminder}
+                      disabled={!reminderTitle.trim()}
+                      className="flex-1 bg-primary text-white text-xs font-bold py-2 rounded-lg disabled:opacity-50"
+                    >
+                      Salvar
+                    </button>
+                    <button
+                      onClick={() => setShowAddReminder(false)}
+                      className="flex-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold py-2 rounded-lg"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
                 </div>
               )}
 
               <div className="space-y-2">
                 {evs.length > 0 ? (
                   evs.map((ev, idx) => (
-                    <div key={ev.id || idx} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-                      <p className="font-bold text-slate-700 dark:text-slate-300 text-xs">{ev.title}</p>
-                      {ev.notes && <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-1">{ev.notes}</p>}
-                      <p className="text-[10px] text-slate-500 font-manrope mt-1">Horário: {ev.start} {ev.isCustom ? '' : '- Sincronizado do Calendário'}</p>
+                    <div
+                      key={ev.id || idx}
+                      className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700"
+                    >
+                      <p className="font-bold text-slate-700 dark:text-slate-300 text-xs">
+                        {ev.title}
+                      </p>
+                      {ev.notes && (
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-1">
+                          {ev.notes}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-slate-500 font-manrope mt-1">
+                        Horário: {ev.start}{" "}
+                        {ev.isCustom ? "" : "- Sincronizado do Calendário"}
+                      </p>
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-slate-500 italic mb-2">Nenhum evento ou conteúdo registrado.</p>
+                  <p className="text-xs text-slate-500 italic mb-2">
+                    Nenhum evento ou conteúdo registrado.
+                  </p>
                 )}
               </div>
             </div>
@@ -4300,7 +4559,9 @@ const AgendaScreen = ({
             title="Sincronizar Agenda"
             className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-primary"
           >
-            <RefreshCw className={`w-4 h-4 ${isSyncingGoogle ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${isSyncingGoogle ? "animate-spin" : ""}`}
+            />
           </button>
         ) : (
           <button
@@ -4342,25 +4603,32 @@ const AgendaScreen = ({
 
           {days.map((d, idx) => {
             if (!d) return <div key={`empty-${idx}`} />;
-            
+
             const dateStr = formatDateForHistory(
               currentDate.getFullYear(),
               currentDate.getMonth(),
-              d
+              d,
             );
 
             // Compute missing counts for this day
-            const absentsPerClass = (appData.classes || []).map((c) => {
-              const count = c.students.filter(
-                (s) =>
-                  s.attendanceHistory &&
-                  s.attendanceHistory[dateStr] === "absent"
-              ).length;
-              return count > 0 ? { className: c.name, count } : null;
-            }).filter(Boolean) as { className: string; count: number }[];
+            const absentsPerClass = (appData.classes || [])
+              .map((c) => {
+                const count = c.students.filter(
+                  (s) =>
+                    s.attendanceHistory &&
+                    s.attendanceHistory[dateStr] === "absent",
+                ).length;
+                return count > 0 ? { className: c.name, count } : null;
+              })
+              .filter(Boolean) as { className: string; count: number }[];
 
-            const hasOcc = (appData.occurrences || []).some(o => o.date.startsWith(dateStr));
-            const totalMissing = absentsPerClass.reduce((acc, curr) => acc + curr.count, 0);
+            const hasOcc = (appData.occurrences || []).some((o) =>
+              o.date.startsWith(dateStr),
+            );
+            const totalMissing = absentsPerClass.reduce(
+              (acc, curr) => acc + curr.count,
+              0,
+            );
 
             return (
               <div
@@ -4372,7 +4640,7 @@ const AgendaScreen = ({
                   <span className="text-sm font-bold text-slate-800 dark:text-slate-200">
                     {d}
                   </span>
-                  
+
                   {totalMissing > 0 && (
                     <div className="bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 text-[9px] font-extrabold px-1.5 py-0.5 rounded w-full line-clamp-1 truncate text-center">
                       {totalMissing} Faltas
@@ -4680,7 +4948,9 @@ const ReportsScreen = ({
   const [selectedReportCalendarDate, setSelectedReportCalendarDate] = useState<
     string | null
   >(() => getLocalDateString());
-  const [reportCalendarFilter, setReportCalendarFilter] = useState<"all" | "absent" | "present" | "late">("all");
+  const [reportCalendarFilter, setReportCalendarFilter] = useState<
+    "all" | "absent" | "present" | "late"
+  >("all");
 
   const [editingDiag, setEditingDiag] = useState(false);
   const [diagText, setDiagText] = useState("");
@@ -5230,10 +5500,15 @@ const ReportsScreen = ({
                       };
 
                       if (hasDayRecords) {
-                        const allForDay = (activeClass?.students || []).map((s) => {
-                          const sStatus = s.attendanceHistory?.[selectedReportCalendarDate] || "none";
-                          return { ...s, currentStatus: sStatus };
-                        });
+                        const allForDay = (activeClass?.students || []).map(
+                          (s) => {
+                            const sStatus =
+                              s.attendanceHistory?.[
+                                selectedReportCalendarDate
+                              ] || "none";
+                            return { ...s, currentStatus: sStatus };
+                          },
+                        );
 
                         const filtered = allForDay.filter((s) => {
                           if (reportCalendarFilter === "all") return true;
@@ -5257,7 +5532,9 @@ const ReportsScreen = ({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setReportCalendarFilter("absent")}
+                                onClick={() =>
+                                  setReportCalendarFilter("absent")
+                                }
                                 className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
                                   reportCalendarFilter === "absent"
                                     ? "bg-red-500 text-white shadow-sm font-manrope font-semibold"
@@ -5268,7 +5545,9 @@ const ReportsScreen = ({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setReportCalendarFilter("present")}
+                                onClick={() =>
+                                  setReportCalendarFilter("present")
+                                }
                                 className={`flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
                                   reportCalendarFilter === "present"
                                     ? "bg-emerald-500 text-white shadow-sm font-manrope font-semibold"
@@ -5311,7 +5590,8 @@ const ReportsScreen = ({
                                     }`}
                                   >
                                     <div className="flex items-center gap-3">
-                                      {student.avatar && student.avatar.trim() !== "" ? (
+                                      {student.avatar &&
+                                      student.avatar.trim() !== "" ? (
                                         <img
                                           src={student.avatar}
                                           alt={student.name}
@@ -5332,9 +5612,11 @@ const ReportsScreen = ({
                                             className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded ${
                                               student.currentStatus === "absent"
                                                 ? "bg-red-50 text-red-500 dark:bg-red-500/15"
-                                                : student.currentStatus === "late"
+                                                : student.currentStatus ===
+                                                    "late"
                                                   ? "bg-amber-50 text-amber-600 dark:bg-amber-500/15"
-                                                  : student.currentStatus === "present"
+                                                  : student.currentStatus ===
+                                                      "present"
                                                     ? "bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15"
                                                     : "bg-slate-100 text-slate-400 dark:bg-slate-800"
                                             }`}
@@ -5343,12 +5625,16 @@ const ReportsScreen = ({
                                               ? "Falta"
                                               : student.currentStatus === "late"
                                                 ? "Atraso"
-                                                : student.currentStatus === "present"
+                                                : student.currentStatus ===
+                                                    "present"
                                                   ? "Presente"
                                                   : "Sem Chamada"}
                                           </span>
                                           {student.specialNeeds?.map((need) => (
-                                            <SpecialNeedBadge key={need} type={need} />
+                                            <SpecialNeedBadge
+                                              key={need}
+                                              type={need}
+                                            />
                                           ))}
                                         </div>
                                       </div>
@@ -5996,7 +6282,10 @@ const ReportsScreen = ({
                                               [date]: newStatus,
                                             } as Record<
                                               string,
-                                              "none" | "absent" | "late" | "present"
+                                              | "none"
+                                              | "absent"
+                                              | "late"
+                                              | "present"
                                             >,
                                           };
                                         }
@@ -6133,7 +6422,7 @@ const ClassesScreen = ({
           id: Math.random().toString(36).substring(2, 9),
           attendanceHistory: {},
           evaluations: [],
-          status: "none"
+          status: "none",
         }));
         newClasses.push(clonedClass);
       }
@@ -6174,7 +6463,10 @@ const ClassesScreen = ({
           grade: s.grade || clonedClass.name,
           room: s.room || "N/A",
           status: "none" as const,
-          attendanceHistory: {} as Record<string, "none" | "absent" | "late" | "present">,
+          attendanceHistory: {} as Record<
+            string,
+            "none" | "absent" | "late" | "present"
+          >,
           diagnostic: "",
           evaluations: [] as StudentEvaluation[],
           specialNeeds: s.specialNeeds || [],
@@ -6362,14 +6654,17 @@ const ClassesScreen = ({
               <div className="flex justify-between items-center">
                 <div>
                   <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                    <Link2 className="w-5 h-5 text-primary" /> Solicitar Vínculo de Alunos
+                    <Link2 className="w-5 h-5 text-primary" /> Solicitar Vínculo
+                    de Alunos
                   </h3>
                   <p className="text-xs text-slate-500 font-manrope mt-1 leading-relaxed">
                     Selecione uma turma registrada por outro docente de{" "}
                     <span className="font-bold text-primary">
                       {appData.schoolName || "sua escola"}
                     </span>{" "}
-                    para solicitar o vínculo com os alunos ao seu perfil. Cada um terá suas frequências e didáticas 100% individuais e privadas.
+                    para solicitar o vínculo com os alunos ao seu perfil. Cada
+                    um terá suas frequências e didáticas 100% individuais e
+                    privadas.
                   </p>
                 </div>
                 <button
@@ -6914,6 +7209,7 @@ const SettingsScreen = ({
   canInstall,
   onNavigateAdmin,
   isAdmin,
+  onShowNotification,
 }: {
   appData: AppState;
   onUpdateField: (field: string, value: string) => void;
@@ -6924,6 +7220,7 @@ const SettingsScreen = ({
   canInstall?: boolean;
   onNavigateAdmin?: () => void;
   isAdmin?: boolean;
+  onShowNotification: (msg: string, type: "info" | "critical") => void;
 }) => {
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -6946,9 +7243,9 @@ const SettingsScreen = ({
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Turma,Aluno,Data,Status\n";
 
-    appData.classes.forEach(c => {
+    appData.classes.forEach((c) => {
       if (c.students) {
-        c.students.forEach(s => {
+        c.students.forEach((s) => {
           if (s.attendanceHistory) {
             Object.entries(s.attendanceHistory).forEach(([date, status]) => {
               csvContent += `"${c.name}","${s.name}","${date}","${status}"\n`;
@@ -6961,7 +7258,10 @@ const SettingsScreen = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `horizonte_backup_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute(
+      "download",
+      `horizonte_backup_${new Date().toISOString().split("T")[0]}.csv`,
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -6989,7 +7289,9 @@ const SettingsScreen = ({
       }
 
       if (toDelete.length > 0) {
-        console.log(`[Backup Pre-Check] Consolidating ${toDelete.length} duplicate attendance records in Dexie...`);
+        console.log(
+          `[Backup Pre-Check] Consolidating ${toDelete.length} duplicate attendance records in Dexie...`,
+        );
         await dexieDb.attendance.bulkDelete(toDelete);
       }
     } catch (e) {
@@ -7032,13 +7334,25 @@ const SettingsScreen = ({
 
       // 3. Prepare Notas Data
       const gradesRows: string[][] = [];
-      gradesRows.push(["Turma", "Aluno", "Data de Avaliação", "Nota", "Observações"]);
+      gradesRows.push([
+        "Turma",
+        "Aluno",
+        "Data de Avaliação",
+        "Nota",
+        "Observações",
+      ]);
       appData.classes.forEach((c) => {
         if (c.students) {
           c.students.forEach((s) => {
             if (s.evaluations && s.evaluations.length > 0) {
               s.evaluations.forEach((ev) => {
-                gradesRows.push([c.name, s.name, ev.date, ev.grade.toString(), ev.notes || ""]);
+                gradesRows.push([
+                  c.name,
+                  s.name,
+                  ev.date,
+                  ev.grade.toString(),
+                  ev.notes || "",
+                ]);
               });
             } else {
               gradesRows.push([c.name, s.name, "N/A", "N/A", "N/A"]);
@@ -7049,49 +7363,57 @@ const SettingsScreen = ({
 
       // 4. Create Google Spreadsheet
       const sheetTitle = `Horizonte Frequência - ${new Date().toLocaleDateString("pt-BR").replace(/\//g, "-")}`;
-      const createSheetRes = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+      const createSheetRes = await fetch(
+        "https://sheets.googleapis.com/v4/spreadsheets",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            properties: { title: sheetTitle },
+            sheets: [
+              { properties: { title: "Frequências" } },
+              { properties: { title: "Notas" } },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          properties: { title: sheetTitle },
-          sheets: [
-            { properties: { title: "Frequências" } },
-            { properties: { title: "Notas" } },
-          ],
-        }),
-      });
+      );
 
       if (!createSheetRes.ok) {
-        throw new Error("Falha ao criar planilha. Verifique as permissões do Google.");
+        throw new Error(
+          "Falha ao criar planilha. Verifique as permissões do Google.",
+        );
       }
 
       const sheetData = await createSheetRes.json();
       const spreadsheetId = sheetData.spreadsheetId;
 
       // 5. Populate Sheets with Data
-      const batchUpdateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+      const batchUpdateRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            valueInputOption: "USER_ENTERED",
+            data: [
+              {
+                range: "Frequências!A1",
+                values: attendanceRows,
+              },
+              {
+                range: "Notas!A1",
+                values: gradesRows,
+              },
+            ],
+          }),
         },
-        body: JSON.stringify({
-          valueInputOption: "USER_ENTERED",
-          data: [
-            {
-              range: "Frequências!A1",
-              values: attendanceRows,
-            },
-            {
-              range: "Notas!A1",
-              values: gradesRows,
-            },
-          ],
-        }),
-      });
+      );
 
       if (!batchUpdateRes.ok) {
         throw new Error("Falha ao salvar dados na base do Google Sheets.");
@@ -7100,26 +7422,34 @@ const SettingsScreen = ({
       // 6. Find or Create "Horizonte" folder
       let folderId = null;
       try {
-        const q = encodeURIComponent("mimeType='application/vnd.google-apps.folder' and name='Horizonte' and trashed=false");
-        const folderSearchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const q = encodeURIComponent(
+          "mimeType='application/vnd.google-apps.folder' and name='Horizonte' and trashed=false",
+        );
+        const folderSearchRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q=${q}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
         const folderSearchData = await folderSearchRes.json();
-        
+
         if (folderSearchData.files && folderSearchData.files.length > 0) {
           folderId = folderSearchData.files[0].id;
         } else {
-          const createFolderRes = await fetch("https://www.googleapis.com/drive/v3/files", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
+          const createFolderRes = await fetch(
+            "https://www.googleapis.com/drive/v3/files",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                name: "Horizonte",
+                mimeType: "application/vnd.google-apps.folder",
+              }),
             },
-            body: JSON.stringify({
-              name: "Horizonte",
-              mimeType: "application/vnd.google-apps.folder",
-            }),
-          });
+          );
           const createFolderData = await createFolderRes.json();
           folderId = createFolderData.id;
         }
@@ -7130,16 +7460,24 @@ const SettingsScreen = ({
       // 7. Move Spreadsheet to "Horizonte" folder
       if (folderId) {
         try {
-          const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}?fields=parents`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const fileRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?fields=parents`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            },
+          );
           const fileData = await fileRes.json();
-          const previousParents = fileData.parents ? fileData.parents.join(",") : "";
+          const previousParents = fileData.parents
+            ? fileData.parents.join(",")
+            : "";
 
-          await fetch(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=${previousParents}`, {
-            method: "PATCH",
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          await fetch(
+            `https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=${previousParents}`,
+            {
+              method: "PATCH",
+              headers: { Authorization: `Bearer ${token}` },
+            },
+          );
         } catch (err) {
           console.warn("Could not move file to folder", err);
         }
@@ -7148,7 +7486,9 @@ const SettingsScreen = ({
       onShowNotification("Backup local e Google Drive salvos!", "info");
     } catch (err: any) {
       console.error(err);
-      alert("Erro ao fazer upload. Verifique as permissões de acesso ao Drive.");
+      alert(
+        "Erro ao fazer upload. Verifique as permissões de acesso ao Drive.",
+      );
     }
   };
 
@@ -7159,7 +7499,8 @@ const SettingsScreen = ({
           <Database className="w-4 h-4 text-primary" /> Backup e Segurança
         </h3>
         <p className="text-xs text-slate-500 font-manrope mb-4 leading-relaxed">
-          Garanta a segurança de seus dados exportando uma planilha interna ou salvando um backup no Google Drive.
+          Garanta a segurança de seus dados exportando uma planilha interna ou
+          salvando um backup no Google Drive.
         </p>
 
         <div className="flex flex-col gap-3">
@@ -7170,21 +7511,38 @@ const SettingsScreen = ({
             <div className="flex items-center gap-3">
               <DownloadCloud className="w-5 h-5 text-indigo-500" />
               <div className="text-left">
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Exportar Planilha (Local)</p>
-                <p className="text-[10px] text-slate-500">Baixar backup interno das frequências em CSV</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  Exportar Planilha (Local)
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  Baixar backup interno das frequências em CSV
+                </p>
               </div>
             </div>
           </button>
-          
+
           <button
             onClick={handleDriveBackup}
             className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-colors"
           >
             <div className="flex items-center gap-3">
-              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M7.71 3.5L1.15 15l3.43 6h15.28l3.43-6L16.29 3.5H7.71zm1.66 2h5.27l5.22 9h-5.27l-5.22-9zm-2.09 10H1.9l3.42-6 5.37 9.4 1.88-3.4H7.28z" fill="#4285F4"/></svg>
+              <svg
+                className="w-5 h-5 shrink-0"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M7.71 3.5L1.15 15l3.43 6h15.28l3.43-6L16.29 3.5H7.71zm1.66 2h5.27l5.22 9h-5.27l-5.22-9zm-2.09 10H1.9l3.42-6 5.37 9.4 1.88-3.4H7.28z"
+                  fill="#4285F4"
+                />
+              </svg>
               <div className="text-left">
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Salvar no Google Drive</p>
-                <p className="text-[10px] text-slate-500">Faz o upload das frequências como CSV na nuvem</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  Salvar no Google Drive
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  Faz o upload das frequências como CSV na nuvem
+                </p>
               </div>
             </div>
           </button>
@@ -7226,15 +7584,15 @@ const SettingsScreen = ({
               className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
             >
               <option value="student">Aluno</option>
+              <option value="guardian">Pais/Responsável</option>
               <option value="teacher">Professor</option>
               <option value="both">Ambos</option>
+              <option value="school_director">Diretor / Gestor</option>
             </select>
           </div>
           <div>
             <label className="text-[10px] font-bold text-primary uppercase ml-1">
-              {appData.role === "student"
-                ? "Nome do Aluno"
-                : "Nome do Professor"}
+               Nome Completo
             </label>
             <input
               type="text"
@@ -7487,16 +7845,15 @@ const AdminScreen = ({
     } catch (e) {}
     return [];
   };
-  const [webhooks, setWebhooks] =
-    useState<
-      {
-        id: string;
-        url: string;
-        name: string;
-        event: string;
-        createdAt: string;
-      }[]
-    >(loadLocalWebhooks());
+  const [webhooks, setWebhooks] = useState<
+    {
+      id: string;
+      url: string;
+      name: string;
+      event: string;
+      createdAt: string;
+    }[]
+  >(loadLocalWebhooks());
   const [newWebhookName, setNewWebhookName] = useState("");
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
   const [newWebhookEvent, setNewWebhookEvent] = useState("all");
@@ -7520,13 +7877,13 @@ const AdminScreen = ({
           const allDocs = await getDocs(coll);
           const uList: any[] = [];
           let tCountLocal = 0;
-          allDocs.forEach(d => {
-             const data = d.data();
-             uList.push({ id: d.id, ...data });
-             if (data.role === "teacher" || data.role === "both") tCountLocal++;
+          allDocs.forEach((d) => {
+            const data = d.data();
+            uList.push({ id: d.id, ...data });
+            if (data.role === "teacher" || data.role === "both") tCountLocal++;
           });
           setAdminUserList(uList);
-          
+
           const maxDocs = uList.length > 224 ? uList.length : 224;
           setTotalUsersCount(maxDocs);
           setTotalTeachersCount(tCountLocal);
@@ -7542,7 +7899,7 @@ const AdminScreen = ({
           snapshotJefson.forEach((docSnap) => {
             const r = docSnap.data().role;
             if (r !== "teacher" && r !== "both") {
-               setTotalTeachersCount(prev => prev + 1);
+              setTotalTeachersCount((prev) => prev + 1);
             }
           });
         } catch (skipErr) {}
@@ -8010,30 +8367,45 @@ const AdminScreen = ({
             </h4>
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {adminUserList.map((u, i) => (
-                <div key={u.id || i} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div
+                  key={u.id || i}
+                  className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
                   <div className="flex items-center gap-3">
                     {u.avatarUrl ? (
-                      <img src={u.avatarUrl} alt="avatar" className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700" />
+                      <img
+                        src={u.avatarUrl}
+                        alt="avatar"
+                        className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700"
+                      />
                     ) : (
                       <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
                         <Users className="w-4 h-4 text-slate-400" />
                       </div>
                     )}
                     <div>
-                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-1">{u.teacherName || u.schoolName || "Usuário"}</p>
-                      <p className="text-[10px] text-slate-500 font-manrope">{u.email || u.id}</p>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-1">
+                        {u.teacherName || u.schoolName || "Usuário"}
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-manrope">
+                        {u.email || u.id}
+                      </p>
                     </div>
                   </div>
                   <div className="text-right">
                     <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
                       {u.role || "student"}
                     </span>
-                    <p className="text-[9px] text-slate-400 mt-1">Escola: {u.schoolName || "N/A"}</p>
+                    <p className="text-[9px] text-slate-400 mt-1">
+                      Escola: {u.schoolName || "N/A"}
+                    </p>
                   </div>
                 </div>
               ))}
               {adminUserList.length === 0 && (
-                <p className="text-xs text-slate-500 italic">Carregando usuários ou nenhum encontrado.</p>
+                <p className="text-xs text-slate-500 italic">
+                  Carregando usuários ou nenhum encontrado.
+                </p>
               )}
             </div>
           </div>
@@ -8687,7 +9059,7 @@ export default function App() {
           error.message.includes("the client is offline")
         ) {
           console.warn(
-            "Firebase client is offline (expected in tests if no network)."
+            "Firebase client is offline (expected in tests if no network).",
           );
         }
         // handleFirestoreError(error, OperationType.GET, 'test/connection'); // Optional for test connection
@@ -8721,10 +9093,10 @@ export default function App() {
   // Automatically seed past records for classes with empty/missing history
   const hasSeededRef = useRef(false);
 
-    // Recovery of missing attendance data (May 15, 19, 20, 21 and full Dexie sync)
+  // Recovery of missing attendance data (May 15, 19, 20, 21 and full Dexie sync)
   useEffect(() => {
     if (!appData || !appData.classes || appData.classes.length === 0) return;
-    
+
     const restoredKey = "horizonte_recovered_ai_seed_v4";
     if (localStorage.getItem(restoredKey)) return;
 
@@ -8757,27 +9129,39 @@ export default function App() {
         // Recover Dexie data
         updateAppData((prev) => {
           let hasChanges = false;
-          
+
           // Also guarantee Jefson is 'both' (Teacher + Admin) Role
           let updatedRole = prev.role;
-          if (auth.currentUser?.email === "jefson.s.a7@gmail.com" || auth.currentUser?.email === "jefson.ti@gmail.com" || (prev.cpf || "").replace(/\D/g, "") === "00995845301") {
-             if (updatedRole !== "both") {
-                updatedRole = "both";
-                hasChanges = true;
-             }
+          if (
+            auth.currentUser?.email === "jefson.s.a7@gmail.com" ||
+            auth.currentUser?.email === "jefson.ti@gmail.com" ||
+            (prev.cpf || "").replace(/\D/g, "") === "00995845301"
+          ) {
+            if (updatedRole !== "both") {
+              updatedRole = "both";
+              hasChanges = true;
+            }
           }
 
-          const updatedClasses = prev.classes.map(c => {
-            const classAttendances = dexieAttendances.filter(a => a.classId === c.id);
-            
-            const updatedStudents = (c.students || []).map(student => {
-              const studentAttendances = classAttendances.filter(a => a.studentId === student.id);
-              const newHistory: Record<string, "present" | "absent" | "late" | "none"> = { ...(student.attendanceHistory || {}) };
+          const updatedClasses = prev.classes.map((c) => {
+            const classAttendances = dexieAttendances.filter(
+              (a) => a.classId === c.id,
+            );
+
+            const updatedStudents = (c.students || []).map((student) => {
+              const studentAttendances = classAttendances.filter(
+                (a) => a.studentId === student.id,
+              );
+              const newHistory: Record<
+                string,
+                "present" | "absent" | "late" | "none"
+              > = { ...(student.attendanceHistory || {}) };
               let modified = false;
 
               // 1. Recover from Dexie logs
-              studentAttendances.forEach(a => {
-                const safeStatus = a.status === 'justified' ? 'absent' : a.status;
+              studentAttendances.forEach((a) => {
+                const safeStatus =
+                  a.status === "justified" ? "absent" : a.status;
                 if (newHistory[a.date] !== safeStatus) {
                   newHistory[a.date] = safeStatus;
                   modified = true;
@@ -8796,8 +9180,10 @@ export default function App() {
           });
 
           if (hasChanges) {
-             console.log("[Recovery] Restoring missing data from Dexie & Setting Admin Role.");
-             return { ...prev, classes: updatedClasses, role: updatedRole };
+            console.log(
+              "[Recovery] Restoring missing data from Dexie & Setting Admin Role.",
+            );
+            return { ...prev, classes: updatedClasses, role: updatedRole };
           }
           return prev;
         });
@@ -8823,7 +9209,12 @@ export default function App() {
     if (!("Notification" in window)) return;
 
     const checkUpcomingEvents = () => {
-      if (!appData || !appData.googleCalendarEvents || appData.googleCalendarEvents.length === 0) return;
+      if (
+        !appData ||
+        !appData.googleCalendarEvents ||
+        appData.googleCalendarEvents.length === 0
+      )
+        return;
       if (Notification.permission !== "granted") return;
 
       const now = Date.now();
@@ -8847,8 +9238,13 @@ export default function App() {
         const sixtyMinutesMs = 60 * 60 * 1000;
         if (diffMs > 0 && diffMs <= sixtyMinutesMs) {
           if (!updatedNotified.includes(event.id)) {
-            const timeStr = event.start || new Date(event.dateIso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            
+            const timeStr =
+              event.start ||
+              new Date(event.dateIso).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+
             try {
               new Notification(`Lembrete de Compromisso`, {
                 body: `O evento "${event.title}" começa em breve (às ${timeStr})!`,
@@ -8865,7 +9261,10 @@ export default function App() {
       });
 
       if (hasNewNotified) {
-        localStorage.setItem("horizonte_notified_events", JSON.stringify(updatedNotified));
+        localStorage.setItem(
+          "horizonte_notified_events",
+          JSON.stringify(updatedNotified),
+        );
       }
     };
 
@@ -9071,86 +9470,116 @@ export default function App() {
         updatedAt: serverTimestamp(),
       };
       await setDoc(doc(db, "users", auth.currentUser.uid), payload);
-      
+
       if (data.schoolName && data.schoolName.trim()) {
         const schoolTrimmed = data.schoolName.trim();
-        const schoolDocId = schoolTrimmed.toLowerCase().replace(/[^a-z0-9]/g, "_");
+        const schoolDocId = schoolTrimmed
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "_");
         if (schoolDocId) {
           try {
-            await setDoc(doc(db, "schools", schoolDocId), {
-              name: schoolTrimmed,
-              city: data.schoolCity || "",
-              state: data.schoolState || "",
-              createdAt: serverTimestamp(),
-              status: "active"
-            }, { merge: true });
+            await setDoc(
+              doc(db, "schools", schoolDocId),
+              {
+                name: schoolTrimmed,
+                city: data.schoolCity || "",
+                state: data.schoolState || "",
+                createdAt: serverTimestamp(),
+                status: "active",
+              },
+              { merge: true },
+            );
 
             // Add as member
-            await setDoc(doc(db, `schools/${schoolDocId}/members`, auth.currentUser.uid), {
-              id: auth.currentUser.uid,
-              name: data.teacherName,
-              email: auth.currentUser.email || "",
-              subject: data.teacherSubject || "",
-              role: data.role || "teacher",
-              status: (data.role === "school_director" || data.role === "school_secretary") ? "approved" : "pending",
-              joinedAt: Date.now()
-            }, { merge: true });
+            await setDoc(
+              doc(db, `schools/${schoolDocId}/members`, auth.currentUser.uid),
+              {
+                id: auth.currentUser.uid,
+                name: data.teacherName,
+                email: auth.currentUser.email || "",
+                subject: data.teacherSubject || "",
+                role: data.role || "teacher",
+                status:
+                  data.role === "school_director" ||
+                  data.role === "school_secretary"
+                    ? "approved"
+                    : "pending",
+                joinedAt: Date.now(),
+              },
+              { merge: true },
+            );
 
             // Sync Occurrences
             if (data.occurrences && data.occurrences.length > 0) {
               for (const occ of data.occurrences) {
-                 await setDoc(doc(db, `schools/${schoolDocId}/occurrences`, occ.id), {
-                   ...occ,
-                   syncInfo: {
-                     teacherId: auth.currentUser.uid,
-                     teacherName: data.teacherName,
-                     schoolId: schoolDocId
-                   }
-                 }, { merge: true });
+                await setDoc(
+                  doc(db, `schools/${schoolDocId}/occurrences`, occ.id),
+                  {
+                    ...occ,
+                    syncInfo: {
+                      teacherId: auth.currentUser.uid,
+                      teacherName: data.teacherName,
+                      schoolId: schoolDocId,
+                    },
+                  },
+                  { merge: true },
+                );
               }
             }
-            
+
             // Sync Attendance and Grades from classes
             if (data.classes && data.classes.length > 0) {
               for (const c of data.classes) {
                 for (const s of c.students) {
-                   if (s.attendanceHistory) {
-                     for (const [date, status] of Object.entries(s.attendanceHistory)) {
-                        const recId = `${c.id}_${s.id}_${date}`;
-                        await setDoc(doc(db, `schools/${schoolDocId}/attendance`, recId), {
-                           id: recId,
-                           studentId: s.id,
-                           studentName: s.name,
-                           classId: c.id,
-                           className: c.name,
-                           date: date,
-                           status: status,
-                           teacherId: auth.currentUser.uid
-                        }, { merge: true });
-                     }
-                   }
-                   if (s.evaluations && s.evaluations.length > 0) {
-                     for (const ev of s.evaluations) {
-                        const recId = `${c.id}_${s.id}_${ev.id}`;
-                        await setDoc(doc(db, `schools/${schoolDocId}/grades`, recId), {
-                           id: recId,
-                           studentId: s.id,
-                           studentName: s.name,
-                           classId: c.id,
-                           className: c.name,
-                           subject: data.teacherSubject || "Geral",
-                           value: ev.grade || 0,
-                           teacherId: auth.currentUser.uid,
-                           bimester: ev.bimester || "Geral"
-                        }, { merge: true });
-                     }
-                   }
+                  if (s.attendanceHistory) {
+                    for (const [date, status] of Object.entries(
+                      s.attendanceHistory,
+                    )) {
+                      const recId = `${c.id}_${s.id}_${date}`;
+                      await setDoc(
+                        doc(db, `schools/${schoolDocId}/attendance`, recId),
+                        {
+                          id: recId,
+                          studentId: s.id,
+                          studentName: s.name,
+                          classId: c.id,
+                          className: c.name,
+                          date: date,
+                          status: status,
+                          teacherId: auth.currentUser.uid,
+                        },
+                        { merge: true },
+                      );
+                    }
+                  }
+                  if (s.evaluations && s.evaluations.length > 0) {
+                    for (const ev of s.evaluations) {
+                      const recId = `${c.id}_${s.id}_${ev.id}`;
+                      await setDoc(
+                        doc(db, `schools/${schoolDocId}/grades`, recId),
+                        {
+                          id: recId,
+                          studentId: s.id,
+                          studentName: s.name,
+                          classId: c.id,
+                          className: c.name,
+                          subject: data.teacherSubject || "Geral",
+                          value: ev.grade || 0,
+                          teacherId: auth.currentUser.uid,
+                          bimester: ev.bimester || "Geral",
+                        },
+                        { merge: true },
+                      );
+                    }
+                  }
                 }
               }
             }
-
           } catch (schoolErr) {
-            console.warn("Could not register school/member in schools collection:", schoolErr);
+            console.warn(
+              "Could not register school/member in schools collection:",
+              schoolErr,
+            );
           }
         }
       }
@@ -9813,10 +10242,13 @@ export default function App() {
             onSyncGoogle={handleGoogleSync}
             isSyncingGoogle={isSyncingGoogle}
             onAddEvent={(newEvent) => {
-               updateAppData(prev => ({
-                 ...prev,
-                 googleCalendarEvents: [...(prev.googleCalendarEvents || []), newEvent]
-               }));
+              updateAppData((prev) => ({
+                ...prev,
+                googleCalendarEvents: [
+                  ...(prev.googleCalendarEvents || []),
+                  newEvent,
+                ],
+              }));
             }}
           />
         );
@@ -9981,12 +10413,23 @@ export default function App() {
         );
       case "director":
         return (
-          <SchoolDashboardScreen 
-             school={{ id: "temp", name: appData?.schoolName || "Escola Virtual", status: "active", createdAt: 0, updatedAt: 0 }}
-             totalStudents={appData?.classes?.reduce((acc, curr) => acc + (curr.students?.length || 0), 0) || 0}
-             totalTeachers={1}
-             totalClasses={appData?.classes?.length || 0}
-             onNavigate={(screen) => setActiveScreen(screen as any)}
+          <SchoolDashboardScreen
+            school={{
+              id: "temp",
+              name: appData?.schoolName || "Escola Virtual",
+              status: "active",
+              createdAt: 0,
+              updatedAt: 0,
+            }}
+            totalStudents={
+              appData?.classes?.reduce(
+                (acc, curr) => acc + (curr.students?.length || 0),
+                0,
+              ) || 0
+            }
+            totalTeachers={1}
+            totalClasses={appData?.classes?.length || 0}
+            onNavigate={(screen) => setActiveScreen(screen as any)}
           />
         );
       case "settings":
@@ -10003,6 +10446,7 @@ export default function App() {
             canInstall={!!deferredPrompt}
             isAdmin={isAdminUser()}
             onNavigateAdmin={() => setActiveScreen("admin")}
+            onShowNotification={(msg, type) => triggerNotification(msg, type)}
           />
         );
       case "admin":
@@ -10016,11 +10460,20 @@ export default function App() {
               onShowNotification={triggerNotification}
             />
           );
-        } else if (appData?.role === "school_director" || appData?.role === "school_secretary") {
+        } else if (
+          appData?.role === "school_director" ||
+          appData?.role === "school_secretary"
+        ) {
           return (
             <AccessControlScreen
-               school={{ id: appData.schoolName.toLowerCase().replace(/[^a-z0-9]/g, "_"), name: appData.schoolName, status: "active", createdAt: 0, updatedAt: 0 }}
-               onShowNotification={triggerNotification}
+              school={{
+                id: appData.schoolName.toLowerCase().replace(/[^a-z0-9]/g, "_"),
+                name: appData.schoolName,
+                status: "active",
+                createdAt: 0,
+                updatedAt: 0,
+              }}
+              onShowNotification={triggerNotification}
             />
           );
         } else {

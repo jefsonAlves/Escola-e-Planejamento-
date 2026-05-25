@@ -90,6 +90,22 @@ export const processSyncQueue = async () => {
     });
 
     for (const item of queue) {
+      // Exponential backoff logic based on retry count
+      const now = Date.now();
+      if ((item as any).lastRetryAt && item.retryCount > 0) {
+        const backoffTime = Math.pow(2, item.retryCount) * 1000; // 2s, 4s, 8s, 16s...
+        if (now - (item as any).lastRetryAt < backoffTime) {
+          continue; // Skip this item until backoff period passes
+        }
+      }
+
+      // Basic Data Integrity Check
+      if (!item.collection || !item.localId || !item.payload || typeof item.payload !== 'object') {
+        console.warn(`Data integrity check failed for item ${item.id}. Discarding.`, item);
+        await db.syncQueue.delete(item.id);
+        continue;
+      }
+
       try {
         const docRef = doc(firestore, item.collection, item.localId);
         
@@ -126,11 +142,12 @@ export const processSyncQueue = async () => {
         
         console.error(`Sync error on item ${item.id}:`, e);
         
-        // Update retry count and preserve last error description
+        // Update retry count and preserve last error description, plus set lastRetryAt for exponential backoff
         await db.syncQueue.update(item.id, { 
           retryCount: item.retryCount + 1,
-          lastError: e.message || 'Unknown network error'
-        });
+          lastError: e.message || 'Unknown network error',
+          lastRetryAt: Date.now()
+        } as any);
         
         // Update local state to error
         if (item.operation !== 'DELETE') {

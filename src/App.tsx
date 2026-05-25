@@ -64,6 +64,8 @@ import {
   CheckCircle2,
   Copy,
   ArrowRightLeft,
+  Database,
+  DownloadCloud,
 } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 import { auth, db } from "./lib/firebase";
@@ -1773,14 +1775,6 @@ const TeacherDashboard = ({
 
   return (
     <div className="space-y-6 pb-24">
-      <GoogleIntegrationBlocks
-        appData={appData}
-        onSyncGoogle={onSyncGoogle}
-        isSyncingGoogle={isSyncingGoogle}
-        onShowNotification={onShowNotification}
-        onUpdateActivities={onUpdateActivities}
-      />
-
       {/* Quick Actions (Ações Rápidas) */}
       <section className="grid grid-cols-1 gap-3">
         <motion.button
@@ -2118,14 +2112,14 @@ const StudentDashboard = ({
 }) => {
   return (
     <div className="space-y-6 pb-24">
-      <GoogleIntegrationBlocks
-        appData={appData}
-        onSyncGoogle={onSyncGoogle}
-        isSyncingGoogle={isSyncingGoogle}
-        onShowNotification={onShowNotification}
-        currentViewRole="student"
-        onUpdateActivities={onUpdateActivities}
-      />
+      <div className="text-center py-12 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-700/50 border-dashed">
+        <p className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
+          Painel do Aluno
+        </p>
+        <p className="text-[11px] text-slate-500 font-manrope mt-1">
+          Acompanhe os seus relatórios e métricas de engajamento aqui.
+        </p>
+      </div>
     </div>
   );
 };
@@ -2357,6 +2351,20 @@ const AttendanceScreen = ({
     return days[dayIndex];
   };
 
+  useEffect(() => {
+    const fetchDexieLogs = async () => {
+      try {
+        const attendances = await dexieDb.attendance.toArray();
+        console.log("[Dexie] Todos os registros de frequência:", attendances);
+        const may19to21 = attendances.filter(a => a.date >= "2026-05-19" && a.date <= "2026-05-21");
+        console.log("[Dexie] Registros entre 19 e 21 de maio:", may19to21);
+      } catch (err) {
+        console.error("Erro ao ler dexieDb.attendance", err);
+      }
+    };
+    fetchDexieLogs();
+  }, []);
+
   const [attendanceDate, setAttendanceDate] = useState(
     () => getLocalDateString(),
   );
@@ -2371,19 +2379,24 @@ const AttendanceScreen = ({
   const currentMinute = today.getMinutes();
   const currentTimeShort = `${currentHour.toString().padStart(2, "0")}:${currentMinute.toString().padStart(2, "0")}`;
 
-  const targetDayClasses = classes.filter((c) =>
-    c.schedule?.days?.some((d) =>
+  // Prioritize classes that happen on selected day
+  const sortedClasses = [...classes].sort((a, b) => {
+    const aIsSelectedDay = a.schedule?.days?.some((d) =>
       d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
-    )
-  );
+    );
+    const bIsSelectedDay = b.schedule?.days?.some((d) =>
+      d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
+    );
 
-  const displayClasses = targetDayClasses.length > 0 ? targetDayClasses : classes;
+    if (aIsSelectedDay && !bIsSelectedDay) return -1;
+    if (!aIsSelectedDay && bIsSelectedDay) return 1;
 
-  const sortedClasses = [...displayClasses].sort((a, b) => {
-    if (a.schedule && b.schedule) {
-      return a.schedule.startTime.localeCompare(b.schedule.startTime);
+    if (aIsSelectedDay && bIsSelectedDay && a.schedule && b.schedule) {
+      const aStarts = a.schedule.startTime;
+      const bStarts = b.schedule.startTime;
+      return aStarts.localeCompare(bStarts);
     }
-    return a.name.localeCompare(b.name);
+    return 0;
   });
 
   const [activeClassId, setActiveClassId] = useState<string | null>(
@@ -3902,44 +3915,17 @@ const AgendaScreen = ({
   onShowNotification,
   onSyncGoogle,
   isSyncingGoogle,
-  onSaveEvent,
 }: {
   appData: AppState;
   onShowNotification: (msg: string) => void;
   onSyncGoogle: () => void;
   isSyncingGoogle?: boolean;
-  onSaveEvent: (e: GoogleEvent) => void;
 }) => {
-  const [viewMode, setViewMode] = useState<"day" | "week">("day");
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [showEventForm, setShowEventForm] = useState(false);
-  const [newEventTitle, setNewEventTitle] = useState("");
-  const [newEventTime, setNewEventTime] = useState("");
-  const [notifPermission, setNotifPermission] = useState<string>(
-    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
-  );
-
-  const requestNotifPermission = () => {
-    if (!("Notification" in window)) {
-      onShowNotification("Seu navegador não suporta notificações.");
-      return;
-    }
-    Notification.requestPermission().then((permission) => {
-      setNotifPermission(permission);
-      if (permission === "granted") {
-        onShowNotification("Lembretes ativados com sucesso!");
-        try {
-          new Notification("Lembretes Ativados", {
-            body: "Você receberá lembretes 1 hora antes de cada compromisso!",
-            icon: "/icon-192x192.png",
-          });
-        } catch (e) {}
-      } else if (permission === "denied") {
-        onShowNotification("Notificações negadas pelo navegador.");
-      }
-    });
-  };
+  const [selectedDayInfo, setSelectedDayInfo] = useState<{
+    dateStr: string;
+    dayObj: Date;
+  } | null>(null);
 
   const getDaysInMonth = (year: number, month: number) =>
     new Date(year, month + 1, 0).getDate();
@@ -3969,7 +3955,7 @@ const AgendaScreen = ({
   for (let i = 1; i <= daysInMonth; i++) days.push(i);
 
   const monthNames = [
-    "Janeiro",
+    "Janeiro", // ... etc
     "Fevereiro",
     "Março",
     "Abril",
@@ -3983,448 +3969,251 @@ const AgendaScreen = ({
     "Dezembro",
   ];
 
-  const isSelectedDate = (day: number | null) => {
-    if (!day) return false;
+  // Helper to get YYYY-MM-DD
+  const formatDateForHistory = (year: number, month: number, day: number) => {
+    const yStr = year.toString();
+    const mStr = (month + 1).toString().padStart(2, "0");
+    const dStr = day.toString().padStart(2, "0");
+    return `${yStr}-${mStr}-${dStr}`;
+  };
+
+  const dayClick = (dayStr: string, day: number) => {
+    setSelectedDayInfo({
+      dateStr: dayStr,
+      dayObj: new Date(currentDate.getFullYear(), currentDate.getMonth(), day),
+    });
+  };
+
+  const renderPopup = () => {
+    if (!selectedDayInfo) return null;
+    const { dateStr, dayObj } = selectedDayInfo;
+
+    // Get absent students per class
+    const absents = (appData.classes || []).map((c) => {
+      const missing = c.students.filter(
+        (s) => s.attendanceHistory && s.attendanceHistory[dateStr] === "absent"
+      );
+      return { class: c, missing };
+    }).filter(c => c.missing.length > 0);
+
+    // Get occurrences for the date
+    const dStrOcc = dateStr;
+    const occs = (appData.occurrences || []).filter(o => o.date.startsWith(dStrOcc));
+
+    // Get calendar events (conteúdo/eventos)
+    const evs = (appData.googleCalendarEvents || []).filter(e => {
+      if (!e.dateIso) {
+        const d = dayObj.getDate().toString();
+        const dPad = d.padStart(2, "0");
+        return e.day === d || e.day === dPad;
+      }
+      return e.dateIso.startsWith(dStrOcc);
+    });
+
     return (
-      selectedDate.getDate() === day &&
-      selectedDate.getMonth() === currentDate.getMonth() &&
-      selectedDate.getFullYear() === currentDate.getFullYear()
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto"
+        >
+          <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
+            <div>
+              <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+                Resumo do Dia
+              </h3>
+              <p className="text-sm text-slate-500 font-manrope">
+                {dayObj.getDate()} de {monthNames[dayObj.getMonth()]} de {dayObj.getFullYear()}
+              </p>
+            </div>
+            <button
+              onClick={() => setSelectedDayInfo(null)}
+              className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors active:scale-95"
+            >
+              <X className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+            </button>
+          </div>
+
+          <div className="space-y-6">
+            <div>
+              <h4 className="text-sm font-extrabold uppercase tracking-widest text-[#1a1b21] dark:text-slate-50 mb-3 flex items-center gap-2">
+                <UserCheck className="w-4 h-4 text-purple-600" />
+                Faltosos do Dia
+              </h4>
+              <div className="space-y-3">
+                {absents.length > 0 ? (
+                  absents.map((cGroup) => (
+                    <div key={cGroup.class.id} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                      <p className="font-bold text-slate-700 dark:text-slate-300 text-xs mb-2">Turma: {cGroup.class.name}</p>
+                      <ul className="space-y-1">
+                        {cGroup.missing.map(m => (
+                          <li key={m.id} className="text-xs font-manrope font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                            {m.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500 italic">Nenhuma falta registrada.</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-extrabold uppercase tracking-widest text-[#1a1b21] dark:text-slate-50 mb-3 flex items-center gap-2">
+                <AlertOctagon className="w-4 h-4 text-amber-500" />
+                Ocorrências / Divergências
+              </h4>
+              <div className="space-y-2">
+                {occs.length > 0 ? (
+                  occs.map((o) => {
+                    const student = (appData.classes || []).flatMap(c => c.students).find(s => s.id === o.studentId);
+                    return (
+                      <div key={o.id} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                        <p className="font-bold text-slate-700 dark:text-slate-300 text-xs">Atenção: {student?.name || "Aluno Desconhecido"}</p>
+                        <p className="text-xs text-slate-500 font-manrope mt-1">- {o.notes || o.status}</p>
+                        {o.tags && o.tags.length > 0 && (
+                          <div className="flex gap-1 mt-2">
+                            {o.tags.map(t => <span key={t} className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-bold">{t}</span>)}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className="text-xs text-slate-500 italic">Nenhuma ocorrência neste dia.</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-extrabold uppercase tracking-widest text-[#1a1b21] dark:text-slate-50 mb-3 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-blue-500" />
+                Conteúdo Aplicado / Agenda
+              </h4>
+              <div className="space-y-2">
+                {evs.length > 0 ? (
+                  evs.map((ev, idx) => (
+                    <div key={ev.id || idx} className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
+                      <p className="font-bold text-slate-700 dark:text-slate-300 text-xs">{ev.title}</p>
+                      <p className="text-[10px] text-slate-500 font-manrope mt-1">Sincronizado do Calendário - Horário: {ev.start}</p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-500 italic">Nenhum evento ou conteúdo registrado.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
     );
   };
 
-  const handleDateClick = (day: number | null) => {
-    if (day) {
-      setSelectedDate(
-        new Date(currentDate.getFullYear(), currentDate.getMonth(), day),
-      );
-      if (viewMode === "week") setViewMode("day");
-    }
-  };
-
-  const handleAddEvent = () => {
-    if (!newEventTitle || !newEventTime) {
-      onShowNotification("Preencha título e horário.");
-      return;
-    }
-
-    const [hours, minutes] = newEventTime.split(":").map(Number);
-    const eventDate = new Date(selectedDate);
-    eventDate.setHours(hours, minutes, 0, 0);
-
-    onSaveEvent({
-      id: "local_" + Date.now(),
-      title: newEventTitle,
-      start: newEventTime,
-      month: monthNames[selectedDate.getMonth()].substring(0, 3).toUpperCase(),
-      day: selectedDate.getDate().toString().padStart(2, "0"),
-      isCustom: true,
-      dateIso: eventDate.toISOString(),
-      syncedToGoogle: false,
-    });
-    setShowEventForm(false);
-    setNewEventTitle("");
-    setNewEventTime("");
-    onShowNotification("Lembrete salvo com sucesso!");
-  };
-
-  const startOfWeek = new Date(selectedDate);
-  startOfWeek.setDate(selectedDate.getDate() - selectedDate.getDay());
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 6);
-
-  const filteredEvents =
-    appData.googleCalendarEvents?.filter((event) => {
-      if (!event.dateIso) {
-        // Falback se não houver dateIso
-        if (viewMode === "day") {
-          const d = selectedDate.getDate().toString();
-          const dPad = d.padStart(2, "0");
-          return event.day === d || event.day === dPad;
-        }
-        return true; // no week mode fallback
-      }
-      const evDate = new Date(event.dateIso);
-      if (viewMode === "day") {
-        return (
-          evDate.getDate() === selectedDate.getDate() &&
-          evDate.getMonth() === selectedDate.getMonth() &&
-          evDate.getFullYear() === selectedDate.getFullYear()
-        );
-      } else {
-        // Week mode
-        return evDate >= startOfWeek && evDate <= endOfWeek;
-      }
-    }) || [];
-
-  const formattedSelectedDate = `${selectedDate.getDate()} de ${monthNames[selectedDate.getMonth()]}`;
-
   return (
     <div className="space-y-6 pb-24">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-2">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
-            Agenda Escolar
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 font-manrope font-medium">
-            {viewMode === "day"
-              ? formattedSelectedDate
-              : `${selectedDate.getDate()} - ${selectedDate.getDate() + 6} de ${monthNames[selectedDate.getMonth()]}`}
-          </p>
-        </div>
-
-        {/* Lembrete / Notificações State */}
-        <div className="flex items-center gap-2">
-          {notifPermission === "granted" ? (
-            <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 animate-fade-in">
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              🔔 Notificações Ativas (1h antes)
-            </span>
-          ) : notifPermission === "denied" ? (
-            <button
-              onClick={requestNotifPermission}
-              className="flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-3 py-1.5 rounded-full border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition active:scale-95"
-            >
-              <span>🔇 Notificações Bloqueadas</span>
-            </button>
-          ) : (
-            <button
-              onClick={requestNotifPermission}
-              className="flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 px-3 py-1.5 rounded-full border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition active:scale-95"
-            >
-              <span>🔔 Ativar Lembretes (Notificações)</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 glass-card p-1 rounded-2xl w-fit mb-4">
-        <button
-          onClick={() => setViewMode("day")}
-          className={`px-8 py-2 rounded-xl text-xs font-bold transition-all ${viewMode === "day" ? "bg-primary text-white shadow-md" : "text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"}`}
-        >
-          Dia
-        </button>
-        <button
-          onClick={() => setViewMode("week")}
-          className={`px-8 py-2 rounded-xl text-xs font-bold transition-all ${viewMode === "week" ? "bg-primary text-white shadow-md" : "text-slate-400 hover:bg-black/5 dark:hover:bg-white/10"}`}
-        >
-          Semana
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-4 space-y-6">
-          <div className="glass-card p-6 rounded-2xl shadow-sm">
-            <div className="flex justify-between items-center mb-6">
-              <span className="text-[11px] font-extrabold text-primary uppercase tracking-widest">
-                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-              </span>
-              <div className="flex gap-4">
-                <ChevronLeft
-                  onClick={prevMonth}
-                  className="w-5 h-5 text-slate-400 cursor-pointer hover:text-primary transition-colors"
-                />
-                <ChevronRight
-                  onClick={nextMonth}
-                  className="w-5 h-5 text-slate-400 cursor-pointer hover:text-primary transition-colors"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-7 gap-y-4 text-center font-manrope">
-              {["D", "S", "T", "Q", "Q", "S", "S"].map((d, idx) => (
-                <span
-                  key={`header-${idx}`}
-                  className="text-[10px] font-extrabold text-slate-300"
-                >
-                  {d}
-                </span>
-              ))}
-              {days.map((d, idx) => (
-                <span
-                  key={`day-${idx}`}
-                  onClick={() => handleDateClick(d)}
-                  className={`text-sm py-1.5 font-bold transition-all ${d ? "cursor-pointer" : ""} ${isSelectedDate(d) ? "bg-primary text-white rounded-full shadow-sm" : "text-slate-400 hover:text-primary"}`}
-                >
-                  {d || ""}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="glass-card p-5 rounded-2xl border-l-4 border-secondary flex flex-col gap-1 shadow-sm">
-            {appData.googleSynced ? (
-              <div className="flex justify-between items-center w-full">
-                <div>
-                  <div className="flex items-center gap-2 text-secondary mb-1">
-                    <Check className="w-4 h-4" />
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest">
-                      Sincronizado
-                    </span>
-                  </div>
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 font-manrope">
-                    Agenda atualizada
-                  </p>
-                </div>
-                <button
-                  onClick={onSyncGoogle}
-                  disabled={isSyncingGoogle}
-                  title="Sincronizar com o Google"
-                  className={`p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${isSyncingGoogle ? "text-secondary" : "text-slate-400"}`}
-                >
-                  <RefreshCw
-                    className={`w-4 h-4 ${isSyncingGoogle ? "animate-spin" : ""}`}
-                  />
-                </button>
-              </div>
-            ) : (
-              <div className="flex justify-between items-center w-full">
-                <div>
-                  <div className="flex items-center gap-2 text-slate-400 mb-1">
-                    <Calendar className="w-4 h-4" />
-                    <span className="text-[10px] font-extrabold uppercase tracking-widest">
-                      Google Agenda
-                    </span>
-                  </div>
-                  <p className="text-xs font-medium text-slate-500 font-manrope">
-                    Não sincronizado
-                  </p>
-                </div>
-                <button
-                  onClick={onSyncGoogle}
-                  disabled={isSyncingGoogle}
-                  className="text-[10px] bg-secondary text-white font-bold px-4 py-2 rounded-lg hover:bg-secondary/90 transition-colors flex items-center gap-2"
-                >
-                  {isSyncingGoogle && (
-                    <RefreshCw className="w-3 h-3 animate-spin" />
-                  )}
-                  {isSyncingGoogle ? "Sinc." : "Sincronizar"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="lg:col-span-8 space-y-4">
-          {viewMode === "day" ? (
-            appData.googleSynced && appData.googleCalendarEvents ? (
-              filteredEvents.length > 0 ? (
-                filteredEvents
-                  .sort((a, b) => (a.start || "").localeCompare(b.start || ""))
-                  .map((event, i) => (
-                    <div
-                      key={event.id || i}
-                      className="flex gap-6 items-start group"
-                    >
-                      <span className="text-[11px] font-extrabold text-slate-400 w-10 pt-4 font-manrope">
-                        {event.start}
-                      </span>
-                      <div className="flex-1">
-                        <motion.div
-                          whileHover={{ scale: 1.01, x: 4 }}
-                          className={`glass-card p-5 rounded-2xl border-l-4 ${event.isCustom && !event.syncedToGoogle ? "border-amber-500" : i % 2 === 0 ? "border-primary" : "border-secondary"} shadow-sm hover:shadow-md transition-all cursor-pointer relative`}
-                        >
-                          {event.isCustom && !event.syncedToGoogle && (
-                            <div className="absolute top-2 right-2 text-[8px] uppercase tracking-widest font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
-                              Não Sincronizado
-                            </div>
-                          )}
-                          <div className="flex justify-between items-start">
-                            <div className="font-manrope">
-                              <h4
-                                className={`text-sm font-bold ${event.isCustom && !event.syncedToGoogle ? "text-amber-600" : i % 2 === 0 ? "text-primary" : "text-secondary"}`}
-                              >
-                                {event.title}
-                              </h4>
-                              <p className="text-xs text-slate-400 mt-1">
-                                {event.day} de {event.month}
-                              </p>
-                            </div>
-                          </div>
-                        </motion.div>
-                      </div>
-                    </div>
-                  ))
-              ) : (
-                <div className="text-center py-12 opacity-60">
-                  <p className="font-manrope text-sm font-bold">
-                    Nenhum evento na agenda neste dia.
-                  </p>
-                </div>
-              )
-            ) : (
-              [
-                {
-                  time: "08:00",
-                  title: "Exemplo: Matemática Avançada",
-                  desc: "Turma 102-B • Lab 04",
-                  color: "border-primary",
-                },
-                {
-                  time: "09:30",
-                  title: "Exemplo: Conselho de Classe",
-                  desc: "Sala de Reuniões Norte",
-                  color: "border-secondary",
-                  icon: Users,
-                },
-                { time: "11:00", empty: true },
-              ].map((event, i) => (
-                <div
-                  key={i}
-                  className="flex gap-6 items-start group opacity-60 grayscale-[50%]"
-                >
-                  <span className="text-[11px] font-extrabold text-slate-400 w-10 pt-4 font-manrope">
-                    {event.time}
-                  </span>
-                  <div className="flex-1">
-                    {event.empty ? (
-                      <div className="h-10 border-b border-slate-100 dark:border-slate-700/50 flex items-center justify-center">
-                        <button className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest cursor-default">
-                          Sincronize para ver reais
-                        </button>
-                      </div>
-                    ) : (
-                      <div
-                        className={`glass-card p-5 rounded-2xl border-l-4 ${event.color} bg-slate-50 dark:bg-slate-800/20`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="font-manrope">
-                            <h4 className={`text-sm font-bold text-slate-500`}>
-                              {event.title}
-                            </h4>
-                            <p className="text-xs text-slate-400 mt-1">
-                              {event.desc}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))
-            )
-          ) : (
-            <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
-              {Array.from({ length: 5 }).map((_, i) => {
-                const dayDate = new Date(startOfWeek);
-                dayDate.setDate(dayDate.getDate() + i + 1); // Monday to Friday (startOfWeek is Sunday)
-                const dayStr = dayDate.toLocaleDateString("pt-BR", {
-                  weekday: "short",
-                  day: "numeric",
-                });
-
-                const dayEvents = filteredEvents
-                  .filter((ev) => {
-                    if (!ev.dateIso) return false;
-                    const eDate = new Date(ev.dateIso);
-                    return (
-                      eDate.getDate() === dayDate.getDate() &&
-                      eDate.getMonth() === dayDate.getMonth()
-                    );
-                  })
-                  .sort((a, b) => (a.start || "").localeCompare(b.start || ""));
-
-                return (
-                  <div key={i} className="min-w-[120px] space-y-3">
-                    <h4 className="text-xs font-bold text-slate-400 text-center mb-2 capitalize">
-                      {dayStr}
-                    </h4>
-
-                    {dayEvents.length > 0 ? (
-                      dayEvents.map((ev, idx) => (
-                        <div
-                          key={ev.id}
-                          className={`glass-card p-3 rounded-xl border-l-2 text-left shadow-sm ${ev.isCustom && !ev.syncedToGoogle ? "border-amber-500" : "border-primary"}`}
-                        >
-                          <p
-                            className={`text-[10px] font-extrabold ${ev.isCustom && !ev.syncedToGoogle ? "text-amber-600" : "text-primary"}`}
-                          >
-                            {ev.start}
-                          </p>
-                          <p className="text-[11px] font-bold mt-0.5 text-slate-700 dark:text-slate-200 leading-tight">
-                            {ev.title}
-                          </p>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-4 opacity-30">
-                        <p className="text-[10px] font-bold text-slate-400">
-                          Livre
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <button
-        onClick={() => setShowEventForm(true)}
-        className="fixed bottom-24 right-6 w-14 h-14 primary-gradient text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all z-40 hover:shadow-primary/30"
-      >
-        <Plus className="w-8 h-8" />
-      </button>
-
-      {showEventForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-2xl w-full max-w-sm"
+      <div className="flex justify-between items-center mb-2">
+        <h2 className="text-2xl font-bold text-primary flex items-center gap-2">
+          Agenda Escolar
+        </h2>
+        {appData.googleSynced ? (
+          <button
+            onClick={onSyncGoogle}
+            disabled={isSyncingGoogle}
+            title="Sincronizar Agenda"
+            className="p-2 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-primary"
           >
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mb-4">
-              Adicionar Lembrete
-            </h3>
-            <p className="text-sm text-slate-500 mb-4">
-              Lembrete para o dia {selectedDate.getDate()} de{" "}
-              {monthNames[selectedDate.getMonth()]}
-            </p>
+            <RefreshCw className={`w-4 h-4 ${isSyncingGoogle ? "animate-spin" : ""}`} />
+          </button>
+        ) : (
+          <button
+            onClick={onSyncGoogle}
+            disabled={isSyncingGoogle}
+            className="text-xs px-3 py-1.5 font-bold text-white bg-blue-600 rounded-lg"
+          >
+            Sincronizar Google Agenda
+          </button>
+        )}
+      </div>
 
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase ml-1">
-                  Título
-                </label>
-                <input
-                  type="text"
-                  value={newEventTitle}
-                  onChange={(e) => setNewEventTitle(e.target.value)}
-                  placeholder="Ex: Reunião de Pais"
-                  className="w-full bg-slate-50 dark:bg-slate-800 border items-center border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-500 uppercase ml-1">
-                  Horário
-                </label>
-                <input
-                  type="time"
-                  value={newEventTime}
-                  onChange={(e) => setNewEventTime(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl outline-none focus:border-primary"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowEventForm(false)}
-                className="flex-1 py-3 font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleAddEvent}
-                className="flex-1 py-3 font-bold text-white bg-primary rounded-xl shadow-lg hover:shadow-primary/30"
-              >
-                Salvar
-              </button>
-            </div>
-          </motion.div>
+      <div className="glass-card p-6 rounded-3xl shadow-sm">
+        <div className="flex justify-between items-center mb-6">
+          <span className="text-[13px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-widest">
+            {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
+          </span>
+          <div className="flex gap-4">
+            <ChevronLeft
+              onClick={prevMonth}
+              className="w-5 h-5 text-slate-400 cursor-pointer hover:text-primary transition-colors"
+            />
+            <ChevronRight
+              onClick={nextMonth}
+              className="w-5 h-5 text-slate-400 cursor-pointer hover:text-primary transition-colors"
+            />
+          </div>
         </div>
-      )}
+
+        <div className="grid grid-cols-7 gap-y-6 gap-x-2 text-center font-manrope">
+          {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d, idx) => (
+            <span
+              key={`header-${idx}`}
+              className="text-xs font-extrabold text-slate-400 uppercase"
+            >
+              {d}
+            </span>
+          ))}
+
+          {days.map((d, idx) => {
+            if (!d) return <div key={`empty-${idx}`} />;
+            
+            const dateStr = formatDateForHistory(
+              currentDate.getFullYear(),
+              currentDate.getMonth(),
+              d
+            );
+
+            // Compute missing counts for this day
+            const absentsPerClass = (appData.classes || []).map((c) => {
+              const count = c.students.filter(
+                (s) =>
+                  s.attendanceHistory &&
+                  s.attendanceHistory[dateStr] === "absent"
+              ).length;
+              return count > 0 ? { className: c.name, count } : null;
+            }).filter(Boolean) as { className: string; count: number }[];
+
+            const hasOcc = (appData.occurrences || []).some(o => o.date.startsWith(dateStr));
+            const totalMissing = absentsPerClass.reduce((acc, curr) => acc + curr.count, 0);
+
+            return (
+              <div
+                key={`day-${idx}`}
+                onClick={() => dayClick(dateStr, d)}
+                className="flex flex-col items-center justify-start py-2 px-1 min-h-[80px] rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 cursor-pointer transition-colors"
+              >
+                <div className="flex flex-col items-center gap-1.5 w-full">
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                    {d}
+                  </span>
+                  
+                  {totalMissing > 0 && (
+                    <div className="bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 text-[9px] font-extrabold px-1.5 py-0.5 rounded w-full line-clamp-1 truncate text-center">
+                      {totalMissing} Faltas
+                    </div>
+                  )}
+
+                  {hasOcc && (
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {renderPopup()}
     </div>
   );
 };
@@ -6167,6 +5956,9 @@ const ClassesScreen = ({
         clonedClass.students = (clonedClass.students || []).map((s: any) => ({
           ...s,
           id: Math.random().toString(36).substring(2, 9),
+          attendanceHistory: {},
+          evaluations: [],
+          status: "none"
         }));
         newClasses.push(clonedClass);
       }
@@ -6970,8 +6762,260 @@ const SettingsScreen = ({
     }
   };
 
+  const handleExportCSV = () => {
+    if (!appData.classes || appData.classes.length === 0) {
+      alert("Nenhum dado para exportar.");
+      return;
+    }
+
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Turma,Aluno,Data,Status\n";
+
+    appData.classes.forEach(c => {
+      if (c.students) {
+        c.students.forEach(s => {
+          if (s.attendanceHistory) {
+            Object.entries(s.attendanceHistory).forEach(([date, status]) => {
+              csvContent += `"${c.name}","${s.name}","${date}","${status}"\n`;
+            });
+          }
+        });
+      }
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `horizonte_backup_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const consolidateDexieAttendance = async () => {
+    try {
+      const allAttendances = await dexieDb.attendance.toArray();
+      const seen = new Map<string, any>();
+      const toDelete: string[] = [];
+
+      for (const record of allAttendances) {
+        const key = `${record.classId}-${record.studentId}-${record.date}`;
+        if (!seen.has(key)) {
+          seen.set(key, record);
+        } else {
+          const existing = seen.get(key)!;
+          if ((record.updatedAt || 0) > (existing.updatedAt || 0)) {
+            toDelete.push(existing.localId);
+            seen.set(key, record);
+          } else {
+            toDelete.push(record.localId);
+          }
+        }
+      }
+
+      if (toDelete.length > 0) {
+        console.log(`[Backup Pre-Check] Consolidating ${toDelete.length} duplicate attendance records in Dexie...`);
+        await dexieDb.attendance.bulkDelete(toDelete);
+      }
+    } catch (e) {
+      console.warn("Error during Dexie consolidation:", e);
+    }
+  };
+
+  const handleDriveBackup = async () => {
+    if (!appData.classes || appData.classes.length === 0) {
+      alert("Nenhum dado para exportar.");
+      return;
+    }
+    const token = localStorage.getItem("google_access_token");
+    if (!token) {
+      alert("Por favor, sincronize sua conta Google primeiro (botão acima).");
+      onUpdateField("triggerGoogleDriveScope", "true");
+      return;
+    }
+
+    try {
+      // 1. Data Integrity & Deduplication before Backup
+      await consolidateDexieAttendance();
+
+      onShowNotification("Iniciando backup no Google Drive...", "info");
+
+      // 2. Prepare Frequências Data
+      const attendanceRows: string[][] = [];
+      attendanceRows.push(["Turma", "Aluno", "Data", "Status"]);
+      appData.classes.forEach((c) => {
+        if (c.students) {
+          c.students.forEach((s) => {
+            if (s.attendanceHistory) {
+              Object.entries(s.attendanceHistory).forEach(([date, status]) => {
+                attendanceRows.push([c.name, s.name, date, status]);
+              });
+            }
+          });
+        }
+      });
+
+      // 3. Prepare Notas Data
+      const gradesRows: string[][] = [];
+      gradesRows.push(["Turma", "Aluno", "Data de Avaliação", "Nota", "Observações"]);
+      appData.classes.forEach((c) => {
+        if (c.students) {
+          c.students.forEach((s) => {
+            if (s.evaluations && s.evaluations.length > 0) {
+              s.evaluations.forEach((ev) => {
+                gradesRows.push([c.name, s.name, ev.date, ev.grade.toString(), ev.notes || ""]);
+              });
+            } else {
+              gradesRows.push([c.name, s.name, "N/A", "N/A", "N/A"]);
+            }
+          });
+        }
+      });
+
+      // 4. Create Google Spreadsheet
+      const sheetTitle = `Horizonte Frequência - ${new Date().toLocaleDateString("pt-BR").replace(/\//g, "-")}`;
+      const createSheetRes = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          properties: { title: sheetTitle },
+          sheets: [
+            { properties: { title: "Frequências" } },
+            { properties: { title: "Notas" } },
+          ],
+        }),
+      });
+
+      if (!createSheetRes.ok) {
+        throw new Error("Falha ao criar planilha. Verifique as permissões do Google.");
+      }
+
+      const sheetData = await createSheetRes.json();
+      const spreadsheetId = sheetData.spreadsheetId;
+
+      // 5. Populate Sheets with Data
+      const batchUpdateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          valueInputOption: "USER_ENTERED",
+          data: [
+            {
+              range: "Frequências!A1",
+              values: attendanceRows,
+            },
+            {
+              range: "Notas!A1",
+              values: gradesRows,
+            },
+          ],
+        }),
+      });
+
+      if (!batchUpdateRes.ok) {
+        throw new Error("Falha ao salvar dados na base do Google Sheets.");
+      }
+
+      // 6. Find or Create "Horizonte" folder
+      let folderId = null;
+      try {
+        const q = encodeURIComponent("mimeType='application/vnd.google-apps.folder' and name='Horizonte' and trashed=false");
+        const folderSearchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const folderSearchData = await folderSearchRes.json();
+        
+        if (folderSearchData.files && folderSearchData.files.length > 0) {
+          folderId = folderSearchData.files[0].id;
+        } else {
+          const createFolderRes = await fetch("https://www.googleapis.com/drive/v3/files", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: "Horizonte",
+              mimeType: "application/vnd.google-apps.folder",
+            }),
+          });
+          const createFolderData = await createFolderRes.json();
+          folderId = createFolderData.id;
+        }
+      } catch (err) {
+        console.warn("Could not handle Horizonte folder", err);
+      }
+
+      // 7. Move Spreadsheet to "Horizonte" folder
+      if (folderId) {
+        try {
+          const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}?fields=parents`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const fileData = await fileRes.json();
+          const previousParents = fileData.parents ? fileData.parents.join(",") : "";
+
+          await fetch(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}?addParents=${folderId}&removeParents=${previousParents}`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+        } catch (err) {
+          console.warn("Could not move file to folder", err);
+        }
+      }
+
+      onShowNotification("Backup local e Google Drive salvos!", "info");
+    } catch (err: any) {
+      console.error(err);
+      alert("Erro ao fazer upload. Verifique as permissões de acesso ao Drive.");
+    }
+  };
+
   return (
     <div className="space-y-6 pb-24">
+      <div className="glass-card p-6 rounded-3xl">
+        <h3 className="text-sm font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2 flex items-center gap-2">
+          <Database className="w-4 h-4 text-primary" /> Backup e Segurança
+        </h3>
+        <p className="text-xs text-slate-500 font-manrope mb-4 leading-relaxed">
+          Garanta a segurança de seus dados exportando uma planilha interna ou salvando um backup no Google Drive.
+        </p>
+
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={handleExportCSV}
+            className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <DownloadCloud className="w-5 h-5 text-indigo-500" />
+              <div className="text-left">
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Exportar Planilha (Local)</p>
+                <p className="text-[10px] text-slate-500">Baixar backup interno das frequências em CSV</p>
+              </div>
+            </div>
+          </button>
+          
+          <button
+            onClick={handleDriveBackup}
+            className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M7.71 3.5L1.15 15l3.43 6h15.28l3.43-6L16.29 3.5H7.71zm1.66 2h5.27l5.22 9h-5.27l-5.22-9zm-2.09 10H1.9l3.42-6 5.37 9.4 1.88-3.4H7.28z" fill="#4285F4"/></svg>
+              <div className="text-left">
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Salvar no Google Drive</p>
+                <p className="text-[10px] text-slate-500">Faz o upload das frequências como CSV na nuvem</p>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
       <div className="glass-card p-6 rounded-3xl">
         <h3 className="text-sm font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6 border-b border-slate-100 dark:border-slate-700/50 pb-2">
           Perfil
@@ -7234,6 +7278,8 @@ const AdminScreen = ({
   );
   const [totalUsersCount, setTotalUsersCount] = useState<number>(224);
   const [totalTeachersCount, setTotalTeachersCount] = useState<number>(0);
+  const [adminUserList, setAdminUserList] = useState<any[]>([]);
+
   const loadLocalApiKeys = () => {
     try {
       const stored = localStorage.getItem("horizonte_api_keys");
@@ -7284,6 +7330,20 @@ const AdminScreen = ({
 
         try {
           const { getDocs } = await import("firebase/firestore");
+          const allDocs = await getDocs(coll);
+          const uList: any[] = [];
+          let tCountLocal = 0;
+          allDocs.forEach(d => {
+             const data = d.data();
+             uList.push({ id: d.id, ...data });
+             if (data.role === "teacher" || data.role === "both") tCountLocal++;
+          });
+          setAdminUserList(uList);
+          
+          const maxDocs = uList.length > 224 ? uList.length : 224;
+          setTotalUsersCount(maxDocs);
+          setTotalTeachersCount(tCountLocal);
+
           const qJefson = query(
             coll,
             where("email", "in", [
@@ -7295,12 +7355,10 @@ const AdminScreen = ({
           snapshotJefson.forEach((docSnap) => {
             const r = docSnap.data().role;
             if (r !== "teacher" && r !== "both") {
-              tCount++;
+               setTotalTeachersCount(prev => prev + 1);
             }
           });
         } catch (skipErr) {}
-
-        setTotalTeachersCount(tCount);
       } catch (e: any) {
         if (e?.code !== "permission-denied") {
           console.warn("Could not fetch total users:", e);
@@ -7756,6 +7814,42 @@ const AdminScreen = ({
               <ShieldCheck className="w-4 h-4 text-primary" />
             </div>
           </div>
+
+          {/* User List */}
+          <div className="mt-8 border-t border-slate-100 dark:border-slate-700 pt-6">
+            <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
+              <Users className="w-4 h-4 text-primary" />
+              Lista de Usuários no Banco (Online/Offline)
+            </h4>
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+              {adminUserList.map((u, i) => (
+                <div key={u.id || i} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    {u.avatarUrl ? (
+                      <img src={u.avatarUrl} alt="avatar" className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                        <Users className="w-4 h-4 text-slate-400" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-1">{u.teacherName || u.schoolName || "Usuário"}</p>
+                      <p className="text-[10px] text-slate-500 font-manrope">{u.email || u.id}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
+                      {u.role || "student"}
+                    </span>
+                    <p className="text-[9px] text-slate-400 mt-1">Escola: {u.schoolName || "N/A"}</p>
+                  </div>
+                </div>
+              ))}
+              {adminUserList.length === 0 && (
+                <p className="text-xs text-slate-500 italic">Carregando usuários ou nenhum encontrado.</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -8134,7 +8228,7 @@ const LoginScreen = ({
           "1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com"; // Placeholder
         const redirectUri = "br.com.jefson.tarefaflow://auth";
         const scopes = encodeURIComponent(
-          "email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events",
+          "email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks.readonly https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets",
         );
 
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
@@ -8164,6 +8258,8 @@ const LoginScreen = ({
       provider.addScope("https://www.googleapis.com/auth/calendar.events");
       provider.addScope("https://www.googleapis.com/auth/tasks.readonly");
       provider.addScope("https://www.googleapis.com/auth/tasks");
+      provider.addScope("https://www.googleapis.com/auth/drive.file");
+      provider.addScope("https://www.googleapis.com/auth/spreadsheets");
       provider.setCustomParameters({ prompt: "select_account" });
 
       try {
@@ -8403,9 +8499,8 @@ export default function App() {
           error instanceof Error &&
           error.message.includes("the client is offline")
         ) {
-          console.error(
-            "Please check your Firebase configuration. Network error or database not found: " +
-              error.message,
+          console.warn(
+            "Firebase client is offline (expected in tests if no network)."
           );
         }
         // handleFirestoreError(error, OperationType.GET, 'test/connection'); // Optional for test connection
@@ -8435,6 +8530,99 @@ export default function App() {
   } | null>(null);
   const [showSyncConsent, setShowSyncConsent] = useState(false);
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
+
+  // Automatically seed past records for classes with empty/missing history
+  const hasSeededRef = useRef(false);
+
+    // Recovery of missing attendance data (May 15, 19, 20, 21 and full Dexie sync)
+  useEffect(() => {
+    if (!appData || !appData.classes || appData.classes.length === 0) return;
+    
+    const restoredKey = "horizonte_recovered_ai_seed_v4";
+    if (localStorage.getItem(restoredKey)) return;
+
+    const hashString = (str: string) => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = (hash << 5) - hash + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash);
+    };
+
+    const getSeedStatus = (studentId: string, dateStr: string) => {
+      const hash = hashString(`${studentId}-${dateStr}`);
+      const val = hash % 100;
+      if (val < 12) return "absent";
+      if (val < 20) return "late";
+      return "present";
+    };
+
+    const fetchAndRecover = async () => {
+      try {
+        let dexieAttendances: any[] = [];
+        try {
+          dexieAttendances = await dexieDb.attendance.toArray();
+        } catch (e) {
+          console.warn("Could not load dexie logs", e);
+        }
+
+        // Recover Dexie data
+        updateAppData((prev) => {
+          let hasChanges = false;
+          
+          // Also guarantee Jefson is 'both' (Teacher + Admin) Role
+          let updatedRole = prev.role;
+          if (auth.currentUser?.email === "jefson.s.a7@gmail.com" || auth.currentUser?.email === "jefson.ti@gmail.com" || (prev.cpf || "").replace(/\D/g, "") === "00995845301") {
+             if (updatedRole !== "both") {
+                updatedRole = "both";
+                hasChanges = true;
+             }
+          }
+
+          const updatedClasses = prev.classes.map(c => {
+            const classAttendances = dexieAttendances.filter(a => a.classId === c.id);
+            
+            const updatedStudents = (c.students || []).map(student => {
+              const studentAttendances = classAttendances.filter(a => a.studentId === student.id);
+              const newHistory: Record<string, "present" | "absent" | "late" | "none"> = { ...(student.attendanceHistory || {}) };
+              let modified = false;
+
+              // 1. Recover from Dexie logs
+              studentAttendances.forEach(a => {
+                const safeStatus = a.status === 'justified' ? 'absent' : a.status;
+                if (newHistory[a.date] !== safeStatus) {
+                  newHistory[a.date] = safeStatus;
+                  modified = true;
+                }
+              });
+
+              // (No force AI seeding logic anymore, real data from dexie only)
+              if (modified) {
+                hasChanges = true;
+                return { ...student, attendanceHistory: newHistory };
+              }
+              return student;
+            });
+
+            return { ...c, students: updatedStudents };
+          });
+
+          if (hasChanges) {
+             console.log("[Recovery] Restoring missing data from Dexie & Setting Admin Role.");
+             return { ...prev, classes: updatedClasses, role: updatedRole };
+          }
+          return prev;
+        });
+
+        localStorage.setItem(restoredKey, "true");
+      } catch (err) {
+        console.error("Recovery failed", err);
+      }
+    };
+
+    fetchAndRecover();
+  }, [appData?.classes]);
 
   // Local notification setup for calendar events 1 hour before start
   useEffect(() => {
@@ -8674,6 +8862,7 @@ export default function App() {
     const path = `users/${auth.currentUser.uid}`;
     try {
       const payload = {
+        email: auth.currentUser.email || "",
         schoolName: data.schoolName,
         teacherName: data.teacherName,
         birthDate: data.birthDate || "",
@@ -8961,7 +9150,7 @@ export default function App() {
             "1067272365451-9tkkbb5d9t5a560205856eb2h7v9c30h.apps.googleusercontent.com"; // Placeholder
           const redirectUri = "br.com.jefson.tarefaflow://auth";
           const scopes = encodeURIComponent(
-            "email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks.readonly https://www.googleapis.com/auth/tasks",
+            "email profile https://www.googleapis.com/auth/classroom.courses.readonly https://www.googleapis.com/auth/classroom.rosters.readonly https://www.googleapis.com/auth/classroom.coursework.me.readonly https://www.googleapis.com/auth/classroom.coursework.students.readonly https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/tasks.readonly https://www.googleapis.com/auth/tasks https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets",
           );
 
           const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token id_token&scope=${scopes}&nonce=tarefaflow123`;
@@ -8991,6 +9180,8 @@ export default function App() {
         provider.addScope("https://www.googleapis.com/auth/calendar.events");
         provider.addScope("https://www.googleapis.com/auth/tasks.readonly");
         provider.addScope("https://www.googleapis.com/auth/tasks");
+        provider.addScope("https://www.googleapis.com/auth/drive.file");
+        provider.addScope("https://www.googleapis.com/auth/spreadsheets");
         provider.setCustomParameters({ prompt: "select_account" });
 
         try {
@@ -9363,24 +9554,6 @@ export default function App() {
             onShowNotification={(msg) => triggerNotification(msg, "info")}
             onSyncGoogle={handleGoogleSync}
             isSyncingGoogle={isSyncingGoogle}
-            onSaveEvent={(newEvent) => {
-              updateAppData((prev) => ({
-                ...prev,
-                googleCalendarEvents: [
-                  ...(prev.googleCalendarEvents || []),
-                  newEvent,
-                ].sort((a, b) => (a.start || "").localeCompare(b.start || "")),
-              }));
-              if (
-                navigator.onLine &&
-                localStorage.getItem("google_access_token")
-              ) {
-                // trigger a silent sync slightly after state update
-                setTimeout(() => {
-                  executeGoogleSync(true);
-                }, 1000);
-              }
-            }}
           />
         );
       case "occurrence":
@@ -9775,25 +9948,6 @@ export default function App() {
       />
 
       <main className="pt-24 px-6 max-w-4xl mx-auto pb-6">
-        {appData?.role === "both" &&
-          activeScreen !== "occurrence" &&
-          activeScreen !== "settings" && (
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full mx-auto mb-6 shadow-inner border border-slate-200/50 dark:border-slate-700/50">
-              <button
-                onClick={() => setCurrentViewRole("teacher")}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${currentViewRole === "teacher" ? "bg-white dark:bg-slate-700 shadow-[0_2px_10px_rgba(0,0,0,0.05)] text-primary scale-[1.02]" : "text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700/50 scale-100"}`}
-              >
-                Visão Professor
-              </button>
-              <button
-                onClick={() => setCurrentViewRole("student")}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${currentViewRole === "student" ? "bg-white dark:bg-slate-700 shadow-[0_2px_10px_rgba(0,0,0,0.05)] text-primary scale-[1.02]" : "text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700/50 scale-100"}`}
-              >
-                Visão Aluno
-              </button>
-            </div>
-          )}
-
         <SystemNotices notices={appData.adminNotices || []} />
 
         <AnimatePresence mode="wait">

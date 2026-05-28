@@ -117,6 +117,12 @@ const getLocalDateString = (d: Date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
+const parseSafeDate = (dateStr: string) => {
+  if (!dateStr || typeof dateStr !== "string" || !dateStr.includes("-")) return new Date();
+  const [y, m, d] = dateStr.split("-");
+  return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10), 12, 0, 0);
+};
+
 // --- Types ---
 declare global {
   interface Window {
@@ -504,6 +510,7 @@ interface AppState {
   birthDate?: string;
   cpf?: string;
   password?: string;
+  teachingDays?: string[];
   googleSynced?: boolean;
   classes: ClassData[];
   occurrences: Occurrence[];
@@ -2679,6 +2686,7 @@ const AttendanceScreen = ({
   onFinish,
   onUpdateStatus,
   onUpdateClasses,
+  teachingDays = [],
 }: {
   onSelectStudent: (id: string) => void;
   classes: ClassData[];
@@ -2690,6 +2698,7 @@ const AttendanceScreen = ({
     status: "present" | "absent" | "late" | "none",
   ) => void;
   onUpdateClasses?: (classes: ClassData[]) => void;
+  teachingDays?: string[];
 }) => {
   const getDayName = (dayIndex: number) => {
     const days = [
@@ -2756,7 +2765,7 @@ const AttendanceScreen = ({
     getLocalDateString(),
   );
 
-  const selectedDateObj = new Date(attendanceDate + "T12:00:00");
+  const selectedDateObj = parseSafeDate(attendanceDate);
   const selectedDayName = getDayName(selectedDateObj.getDay());
   const isSelectedToday = attendanceDate === getLocalDateString();
 
@@ -2765,37 +2774,46 @@ const AttendanceScreen = ({
   const currentMinute = today.getMinutes();
   const currentTimeShort = `${currentHour.toString().padStart(2, "0")}:${currentMinute.toString().padStart(2, "0")}`;
 
-  // Prioritize classes that happen on selected day
-  const sortedClasses = [...classes].sort((a, b) => {
-    const aIsSelectedDay = a.schedule?.days?.some((d) =>
-      d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
-    );
-    const bIsSelectedDay = b.schedule?.days?.some((d) =>
-      d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
-    );
-
-    if (aIsSelectedDay && !bIsSelectedDay) return -1;
-    if (!aIsSelectedDay && bIsSelectedDay) return 1;
-
-    if (aIsSelectedDay && bIsSelectedDay && a.schedule && b.schedule) {
-      const aStarts = a.schedule.startTime;
-      const bStarts = b.schedule.startTime;
-      return aStarts.localeCompare(bStarts);
+  // Only show classes that happen on selected day according to their schedule configuration
+  const visibleClasses = classes.filter((c) => {
+    // If class has specific schedule days, use those
+    if (c.schedule?.days && c.schedule.days.length > 0) {
+      return c.schedule.days.some((d) =>
+        d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
+      );
     }
-    return 0;
+    // If no specific class schedule, fallback to teacher's global teachingDays
+    if (teachingDays && teachingDays.length > 0) {
+      return teachingDays.some((d) =>
+        d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
+      );
+    }
+    // Default to true if no configuration exists at all
+    return true;
+  }).sort((a, b) => {
+    const aStarts = a.schedule?.startTime || "00:00";
+    const bStarts = b.schedule?.startTime || "00:00";
+    return aStarts.localeCompare(bStarts);
   });
 
   const [activeClassId, setActiveClassId] = useState<string | null>(
-    sortedClasses[0]?.id || classes[0]?.id || null,
+    visibleClasses[0]?.id || null,
   );
 
-  // Keep track of activeClassId with a stable default when sortedClasses changes
+  // Update activeClassId if we change dates and the currently selected class is no longer visible on this day
   useEffect(() => {
-    // If the currently selected class is not in the filtered display list, switch to the first one available
-    if (!sortedClasses.find((c) => c.id === activeClassId)) {
-      setActiveClassId(sortedClasses[0]?.id || null);
+    if (activeClassId && !visibleClasses.some(c => c.id === activeClassId)) {
+      if (visibleClasses.length > 0) {
+        setActiveClassId(visibleClasses[0].id);
+      } else {
+        setActiveClassId(null);
+      }
+    } else if (!activeClassId && visibleClasses.length > 0) {
+      setActiveClassId(visibleClasses[0].id);
     }
-  }, [attendanceDate, selectedDayName]);
+  }, [attendanceDate, visibleClasses.map(c => c.id).join(',')]);
+
+
 
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"register" | "calendar">("register");
@@ -2824,9 +2842,14 @@ const AttendanceScreen = ({
   const activeClass = classes.find((c) => c.id === activeClassId);
   const students = activeClass?.students || [];
   
-  const isRegencyDay = activeClass?.schedule?.days?.length 
-    ? activeClass.schedule.days.some(d => d.toLowerCase().substring(0, 3) === getDayName(new Date(attendanceDate + "T12:00:00").getDay()).toLowerCase().substring(0, 3))
-    : true;
+  const currentDayName = getDayName(parseSafeDate(attendanceDate).getDay());
+  
+  let isRegencyDay = true;
+  if (activeClass?.schedule?.days?.length) {
+     isRegencyDay = activeClass.schedule.days.some(d => d.toLowerCase().substring(0, 3) === currentDayName.toLowerCase().substring(0, 3));
+  } else if (teachingDays && teachingDays.length > 0) {
+     isRegencyDay = teachingDays.some(d => d.toLowerCase().substring(0, 3) === currentDayName.toLowerCase().substring(0, 3));
+  }
 
   const handleMarkAllPresent = () => {
     if (!activeClassId || !onUpdateClasses) return;
@@ -2980,7 +3003,24 @@ const AttendanceScreen = ({
             }}
             className="text-xl font-bold text-primary bg-transparent outline-none cursor-pointer border-b-2 border-primary/20 pb-1 pr-6"
           >
-            {sortedClasses.map((c) => {
+            {[...classes].sort((a, b) => {
+              const aIsSelectedDay = a.schedule?.days?.some((d) =>
+                d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
+              );
+              const bIsSelectedDay = b.schedule?.days?.some((d) =>
+                d.toLowerCase().includes(selectedDayName.toLowerCase().substring(0, 3)),
+              );
+
+              if (aIsSelectedDay && !bIsSelectedDay) return -1;
+              if (!aIsSelectedDay && bIsSelectedDay) return 1;
+
+              if (aIsSelectedDay && bIsSelectedDay && a.schedule && b.schedule) {
+                const aStarts = a.schedule?.startTime || "00:00";
+                const bStarts = b.schedule?.startTime || "00:00";
+                return aStarts.localeCompare(bStarts);
+              }
+              return 0;
+            }).map((c) => {
               const isTargetDay = c.schedule?.days?.some((d) =>
                 d
                   .toLowerCase()
@@ -3048,30 +3088,13 @@ const AttendanceScreen = ({
       {viewMode === "register" ? (
         <>
           {/* Selected Day's Schedule Quick Rail */}
-          {sortedClasses.filter((c) =>
-            c.schedule?.days?.some((d) =>
-              d
-                .toLowerCase()
-                .includes(selectedDayName.toLowerCase().substring(0, 3)),
-            ),
-          ).length > 0 && (
+          {visibleClasses.length > 0 ? (
             <div className="space-y-2">
               <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                <Sparkles className="w-3 h-3 text-amber-500" /> Aulas de{" "}
-                {isSelectedToday ? "Hoje" : selectedDayName}
+                <Sparkles className="w-3 h-3 text-amber-500" /> Turmas Disponíveis ({isSelectedToday ? "Hoje" : selectedDayName})
               </h4>
               <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar scroll-smooth no-scrollbar">
-                {sortedClasses
-                  .filter((c) =>
-                    c.schedule?.days?.some((d) =>
-                      d
-                        .toLowerCase()
-                        .includes(
-                          selectedDayName.toLowerCase().substring(0, 3),
-                        ),
-                    ),
-                  )
-                  .map((c) => (
+                {visibleClasses.map((c) => (
                     <button
                       key={c.id}
                       onClick={() => {
@@ -3097,6 +3120,12 @@ const AttendanceScreen = ({
                   ))}
               </div>
             </div>
+          ) : (
+            <div className="glass-card p-6 rounded-2xl flex flex-col items-center justify-center text-center space-y-3 bg-slate-50 dark:bg-slate-800/20 border border-slate-100 dark:border-slate-800 border-dashed">
+              <Calendar className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-1" />
+              <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Nenhuma turma configurada para este dia.</p>
+              <p className="text-[10px] text-slate-400 font-medium">Verifique os dias de aula na configuração da sua turma.</p>
+            </div>
           )}
 
           {activeClass?.schedule?.days?.length ? (
@@ -3118,6 +3147,16 @@ const AttendanceScreen = ({
                    </div>
                 </div>
               )}
+            </div>
+          ) : !isRegencyDay ? (
+            <div className="glass-card p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
+                <div className="p-2 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg flex gap-2 items-start">
+                   <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                   <div>
+                      <p className="text-xs font-bold text-amber-700 dark:text-amber-500">Fora dos dias de regência</p>
+                      <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400">O dia selecionado não faz parte dos seus dias de regência (Perfil).</p>
+                   </div>
+                </div>
             </div>
           ) : null}
 
@@ -3142,7 +3181,7 @@ const AttendanceScreen = ({
               </h4>
               <div className="flex gap-2.5 overflow-x-auto pb-2 custom-scrollbar scroll-smooth no-scrollbar">
                 {launchedDates.map((date) => {
-                  const dObj = new Date(date + "T12:00:00");
+                  const dObj = parseSafeDate(date);
                   const formattedDate = dObj.toLocaleDateString("pt-BR", {
                     day: "2-digit",
                     month: "2-digit",
@@ -3660,8 +3699,8 @@ const AttendanceScreen = ({
                   <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base flex items-center gap-2">
                     <span className="w-2.5 h-5 bg-red-500 rounded-full inline-block"></span>
                     Faltas em{" "}
-                    {new Date(
-                      selectedCalendarDate + "T12:00:00",
+                    {parseSafeDate(
+                      selectedCalendarDate,
                     ).toLocaleDateString("pt-BR")}
                   </h3>
                   <p className="text-xs text-slate-400 font-bold font-manrope uppercase tracking-widest mt-0.5">
@@ -5852,8 +5891,8 @@ const ReportsScreen = ({
                       <h3 className="font-bold text-slate-800 dark:text-slate-100 text-base flex items-center gap-2">
                         <span className="w-2.5 h-5 bg-red-400 rounded-full inline-block"></span>
                         Relatório de Faltas:{" "}
-                        {new Date(
-                          selectedReportCalendarDate + "T12:00:00",
+                        {parseSafeDate(
+                          selectedReportCalendarDate,
                         ).toLocaleDateString("pt-BR")}
                       </h3>
                       <p className="text-xs text-slate-400 font-bold font-manrope uppercase mt-0.5">
@@ -7634,7 +7673,7 @@ const SettingsScreen = ({
   onShowNotification,
 }: {
   appData: AppState;
-  onUpdateField: (field: string, value: string) => void;
+  onUpdateField: (field: string, value: any) => void;
   onLogout: () => void;
   onSyncGoogle: () => void;
   isSyncingGoogle?: boolean;
@@ -7644,6 +7683,9 @@ const SettingsScreen = ({
   isAdmin?: boolean;
   onShowNotification: (msg: string, type: "info" | "critical") => void;
 }) => {
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [backupSuccess, setBackupSuccess] = useState(false);
+
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -7728,10 +7770,13 @@ const SettingsScreen = ({
     }
     const token = localStorage.getItem("google_access_token");
     if (!token) {
-      alert("Por favor, sincronize sua conta Google primeiro (botão acima).");
-      onUpdateField("triggerGoogleDriveScope", "true");
+      onShowNotification("Por favor, autorize o Google Drive primeiro.", "info");
+      onSyncGoogle();
       return;
     }
+
+    setIsBackingUp(true);
+    setBackupSuccess(false);
 
     try {
       // 1. Data Integrity & Deduplication before Backup
@@ -7795,7 +7840,7 @@ const SettingsScreen = ({
 
       // 5. Upload File to Google Drive
       const boundary = "-------314159265358979323846";
-      const delimiter = "\r\n--" + boundary + "\r\n";
+      const delimiter = "--" + boundary + "\r\n";
       const close_delim = "\r\n--" + boundary + "--";
 
       const metadata = {
@@ -7807,6 +7852,7 @@ const SettingsScreen = ({
         delimiter +
         "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
         JSON.stringify(metadata) +
+        "\r\n" +
         delimiter +
         "Content-Type: text/csv; charset=UTF-8\r\n\r\n" +
         csvContent +
@@ -7898,11 +7944,15 @@ const SettingsScreen = ({
       }
 
       onShowNotification("Backup local e Google Drive salvos como CSV!", "info");
+      setBackupSuccess(true);
+      setTimeout(() => setBackupSuccess(false), 3000);
     } catch (err: any) {
       console.error(err);
       alert(
         "Erro ao fazer upload. Verifique as permissões de acesso ao Drive.",
       );
+    } finally {
+      setIsBackingUp(false);
     }
   };
 
@@ -7937,22 +7987,38 @@ const SettingsScreen = ({
 
           <button
             onClick={handleDriveBackup}
-            className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-colors"
+            disabled={isBackingUp}
+            className={`w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border rounded-xl transition-all ${
+              backupSuccess
+                ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20"
+                : "border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/80"
+            }`}
           >
-            <div className="flex items-center gap-3">
-              <svg
-                className="w-5 h-5 shrink-0"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M7.71 3.5L1.15 15l3.43 6h15.28l3.43-6L16.29 3.5H7.71zm1.66 2h5.27l5.22 9h-5.27l-5.22-9zm-2.09 10H1.9l3.42-6 5.37 9.4 1.88-3.4H7.28z"
-                  fill="#4285F4"
-                />
-              </svg>
+            <div className="flex items-center gap-3 relative">
+              <div className="relative">
+                {backupSuccess ? (
+                   <Check className="w-5 h-5 text-emerald-500" />
+                ) : (
+                  <svg
+                    className={`w-5 h-5 shrink-0 transition-opacity ${isBackingUp ? "opacity-30" : "opacity-100"}`}
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M7.71 3.5L1.15 15l3.43 6h15.28l3.43-6L16.29 3.5H7.71zm1.66 2h5.27l5.22 9h-5.27l-5.22-9zm-2.09 10H1.9l3.42-6 5.37 9.4 1.88-3.4H7.28z"
+                      fill="#4285F4"
+                    />
+                  </svg>
+                )}
+                {isBackingUp && !backupSuccess && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5 text-primary animate-spin" />
+                  </div>
+                )}
+              </div>
               <div className="text-left">
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                  Salvar no Google Drive
+                <p className={`text-sm font-bold ${backupSuccess ? "text-emerald-700 dark:text-emerald-400" : "text-slate-800 dark:text-slate-100"}`}>
+                   {isBackingUp ? "Salvando..." : backupSuccess ? "Salvo com sucesso!" : "Salvar no Google Drive"}
                 </p>
                 <p className="text-[10px] text-slate-500">
                   Exporta histórico de frequências e notas num único CSV
@@ -8063,6 +8129,83 @@ const SettingsScreen = ({
               placeholder="000.000.000-00"
               className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
             />
+          </div>
+          <div className="pt-2">
+            <label className="text-[10px] font-bold text-primary uppercase ml-1 block mb-2">
+              Dias da Semana em que ensina (Regência)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"].map((day) => {
+                const currentDays = Array.isArray(appData.teachingDays) ? appData.teachingDays : (typeof appData.teachingDays === 'string' ? JSON.parse(appData.teachingDays) : []);
+                const isActive = currentDays.includes(day);
+                return (
+                  <button
+                    key={day}
+                    onClick={() => {
+                      const newDays = isActive
+                        ? currentDays.filter((d: string) => d !== day)
+                        : [...currentDays, day];
+                      onUpdateField("teachingDays", newDays);
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold transition-colors shadow-sm ${
+                      isActive
+                        ? "bg-primary text-white border-primary border"
+                        : "bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 hover:border-primary/50"
+                    }`}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2 ml-1 font-medium">Marcando os dias acima, você não receberá alertas de "fora dos dias de regência".</p>
+          </div>
+          
+          <div className="pt-6 mt-4 border-t border-slate-100 dark:border-slate-700/50">
+            <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-4">
+              Conexões e Integrações
+            </h4>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={onSyncGoogle}
+                disabled={isSyncingGoogle}
+                className="w-full flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/80 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <svg
+                    className="w-5 h-5 shrink-0"
+                    viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      fill="#4285F4"
+                    />
+                    <path
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                      fill="#34A853"
+                    />
+                    <path
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                      fill="#FBBC05"
+                    />
+                    <path
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      fill="#EA4335"
+                    />
+                  </svg>
+                  <div className="text-left">
+                    <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                      {appData.googleSynced ? "Google Workspace Sincronizado" : "Sincronizar Conta Google"}
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      {appData.googleSynced ? "Conectado. Sincronização de Agenda, Classroom e Drive ok." : "Conecte-se para Backup em Nuvem, Classroom e Agenda."}
+                    </p>
+                  </div>
+                </div>
+                {isSyncingGoogle && <RefreshCw className="w-5 h-5 text-primary animate-spin" />}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -9336,7 +9479,6 @@ const LoginScreen = ({
       provider.addScope("https://www.googleapis.com/auth/tasks");
       provider.addScope("https://www.googleapis.com/auth/drive.file");
       provider.addScope("https://www.googleapis.com/auth/spreadsheets");
-      provider.setCustomParameters({ prompt: "select_account" });
 
       try {
         const result = await signInWithPopup(auth, provider);
@@ -10456,7 +10598,6 @@ export default function App() {
         provider.addScope("https://www.googleapis.com/auth/tasks");
         provider.addScope("https://www.googleapis.com/auth/drive.file");
         provider.addScope("https://www.googleapis.com/auth/spreadsheets");
-        provider.setCustomParameters({ prompt: "select_account" });
 
         try {
           const result = await signInWithPopup(auth, provider);
@@ -10809,6 +10950,7 @@ export default function App() {
         return (
           <AttendanceScreen
             classes={appData?.classes || []}
+            teachingDays={appData?.teachingDays || []}
             onFinish={() => setActiveScreen("studentsHub")}
             onSelectStudent={(id) => {
               setSelectedStudentId(id);

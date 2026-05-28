@@ -24,7 +24,9 @@ const dbId =
     ? config.firestoreDatabaseId
     : undefined;
 
-export const db = dbId ? getFirestore(app, dbId) : getFirestore(app);
+export const db = dbId
+  ? initializeFirestore(app, { localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()}) }, dbId)
+  : initializeFirestore(app, { localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()}) });
 
 export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(console.error);

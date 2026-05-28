@@ -69,6 +69,7 @@ import {
   Bell,
   Shield,
   LogOut,
+  UserX,
 } from "lucide-react";
 import { motion, AnimatePresence, Reorder } from "motion/react";
 import { auth, db } from "./lib/firebase";
@@ -1812,7 +1813,6 @@ const QuickGradeDialog = ({
 
     if (updatedCount === 0) {
       onShowNotification("Nenhuma alteração de nota.");
-      onClose();
       return;
     }
 
@@ -1822,7 +1822,6 @@ const QuickGradeDialog = ({
 
     onUpdateClasses(newClasses);
     onShowNotification(`${updatedCount} nota(s) atualizada(s) com sucesso!`);
-    onClose();
   };
 
   return (
@@ -2063,6 +2062,11 @@ const TeacherDashboard = ({
     (o) => new Date(o.date) >= oneMonthAgo,
   ).length;
 
+  const todayStr = getLocalDateString();
+  const absencesTodayCount = allStudents.filter(
+    (s) => s.attendanceHistory?.[todayStr] === "absent",
+  ).length;
+
   return (
     <div className="space-y-6 pb-24">
       {/* Quick Actions (Ações Rápidas) */}
@@ -2189,6 +2193,27 @@ const TeacherDashboard = ({
           </h3>
         </div>
         <div className="flex overflow-x-auto gap-4 py-2 no-scrollbar px-1">
+          <div
+            className={`min-w-[280px] p-4 rounded-2xl flex gap-4 border ${absencesTodayCount > 0 ? "bg-orange-50 border-orange-100" : "bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-700"}`}
+          >
+            <UserX
+              className={`w-6 h-6 shrink-0 ${absencesTodayCount > 0 ? "text-orange-500" : "text-slate-400"}`}
+            />
+            <div>
+              <p
+                className={`text-xs font-extrabold uppercase ${absencesTodayCount > 0 ? "text-orange-800" : "text-slate-600 dark:text-slate-300"}`}
+              >
+                Faltas Hoje
+              </p>
+              <p
+                className={`text-sm font-manrope leading-tight mt-1 ${absencesTodayCount > 0 ? "text-orange-600" : "text-slate-500"}`}
+              >
+                {absencesTodayCount > 0
+                  ? `${absencesTodayCount} alunos registrados como ausentes no dia de hoje.`
+                  : "Nenhuma falta registrada hoje."}
+              </p>
+            </div>
+          </div>
           <div
             className={`min-w-[280px] p-4 rounded-2xl flex gap-4 border ${evasionRiskCount > 0 ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100"}`}
           >
@@ -2617,6 +2642,7 @@ const AttendanceScreen = ({
   classes,
   onFinish,
   onUpdateStatus,
+  onUpdateClasses,
 }: {
   onSelectStudent: (id: string) => void;
   classes: ClassData[];
@@ -2627,6 +2653,7 @@ const AttendanceScreen = ({
     date: string,
     status: "present" | "absent" | "late" | "none",
   ) => void;
+  onUpdateClasses?: (classes: ClassData[]) => void;
 }) => {
   const getDayName = (dayIndex: number) => {
     const days = [
@@ -2642,19 +2669,51 @@ const AttendanceScreen = ({
   };
 
   useEffect(() => {
+    let isMounted = true;
     const fetchDexieLogs = async () => {
       try {
         const attendances = await dexieDb.attendance.toArray();
-        console.log("[Dexie] Todos os registros de frequência:", attendances);
-        const may19to21 = attendances.filter(
-          (a) => a.date >= "2026-05-19" && a.date <= "2026-05-21",
-        );
-        console.log("[Dexie] Registros entre 19 e 21 de maio:", may19to21);
+        if (!isMounted || !onUpdateClasses || attendances.length === 0) return;
+        
+        let hasChanges = false;
+        const newClasses = classes.map(c => {
+          const classAtts = attendances.filter(a => a.classId === c.id);
+          if (classAtts.length === 0) return c;
+          
+          let cModified = false;
+          const newStudents = c.students.map(s => {
+            const sAtts = classAtts.filter(a => a.studentId === s.id);
+            if (sAtts.length === 0) return s;
+            
+            let sModified = false;
+            const newHistory: Record<string, "none"|"present"|"absent"|"late"> = { ...s.attendanceHistory };
+            
+            sAtts.forEach(a => {
+              const status: "none"|"present"|"absent"|"late" = (a.status === "justified" ? "absent" : a.status) as any;
+              if (status && status !== "none" && newHistory[a.date] !== status) {
+                newHistory[a.date] = status;
+                sModified = true;
+              }
+            });
+            
+            if (sModified) { cModified = true; return { ...s, attendanceHistory: newHistory }; }
+            return s;
+          });
+          
+          if (cModified) { hasChanges = true; return { ...c, students: newStudents }; }
+          return c;
+        });
+        
+        if (hasChanges) {
+           onUpdateClasses(newClasses);
+           console.log("[Dexie] Frequências recuperadas do offline!");
+        }
       } catch (err) {
         console.error("Erro ao ler dexieDb.attendance", err);
       }
     };
     fetchDexieLogs();
+    return () => { isMounted = false; };
   }, []);
 
   const [attendanceDate, setAttendanceDate] = useState(() =>
@@ -2715,8 +2774,49 @@ const AttendanceScreen = ({
     "all" | "absent" | "present" | "late"
   >("all");
 
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editingStudentName, setEditingStudentName] = useState("");
+  const [isAddingStudent, setIsAddingStudent] = useState(false);
+  const [newStudentName, setNewStudentName] = useState("");
+  const [transferringStudentId, setTransferringStudentId] = useState<
+    string | null
+  >(null);
+  const [transferSelectedClassId, setTransferSelectedClassId] = useState<
+    string | null
+  >(null);
+
   const activeClass = classes.find((c) => c.id === activeClassId);
   const students = activeClass?.students || [];
+  
+  const isRegencyDay = activeClass?.schedule?.days?.length 
+    ? activeClass.schedule.days.some(d => d.toLowerCase().substring(0, 3) === getDayName(new Date(attendanceDate + "T12:00:00").getDay()).toLowerCase().substring(0, 3))
+    : true;
+
+  const handleMarkAllPresent = () => {
+    if (!activeClassId || !onUpdateClasses) return;
+    const newClasses = classes.map(c => {
+      if (c.id === activeClassId) {
+        return {
+          ...c,
+          students: c.students.map(s => {
+             const current = s.attendanceHistory?.[attendanceDate] || "none";
+             if (current === "none") {
+               return {
+                 ...s,
+                 attendanceHistory: {
+                   ...(s.attendanceHistory || {}),
+                   [attendanceDate]: "present"
+                 }
+               };
+             }
+             return s;
+          })
+        };
+      }
+      return c;
+    });
+    onUpdateClasses(newClasses);
+  };
 
   const launchedDates = React.useMemo(() => {
     const datesSet = new Set<string>();
@@ -2750,6 +2850,77 @@ const AttendanceScreen = ({
   const exceptionCount = students.filter(
     (s) => getStudentStatus(s) !== "present" && getStudentStatus(s) !== "none",
   ).length;
+
+  const handleEditStudentSave = () => {
+    if (!editingStudentId || !editingStudentName.trim() || !onUpdateClasses) return;
+    const updated = classes.map(c => {
+      if (c.id === activeClassId) {
+        return {
+          ...c,
+          students: c.students.map(s => s.id === editingStudentId ? { ...s, name: editingStudentName.trim() } : s)
+        };
+      }
+      return c;
+    });
+    onUpdateClasses(updated);
+    setEditingStudentId(null);
+    setEditingStudentName("");
+  };
+
+  const handleAddStudentSave = () => {
+    if (!newStudentName.trim() || !activeClassId || !onUpdateClasses) return;
+    const newS = {
+      id: "std_" + Date.now(),
+      name: newStudentName.trim(),
+      avatar: "",
+      grade: activeClass?.name || "",
+      room: "N/A",
+      status: "none" as const,
+    };
+    const updated = classes.map(c => {
+      if (c.id === activeClassId) {
+        return { ...c, students: [...c.students, newS] };
+      }
+      return c;
+    });
+    onUpdateClasses(updated);
+    setNewStudentName("");
+    setIsAddingStudent(false);
+  };
+
+  const handleTransferStudent = () => {
+    if (
+      !transferringStudentId ||
+      !transferSelectedClassId ||
+      !activeClassId ||
+      transferSelectedClassId === activeClassId ||
+      !onUpdateClasses
+    )
+      return;
+    const originalStudent = classes
+      .find((cl) => cl.id === activeClassId)
+      ?.students.find((s) => s.id === transferringStudentId);
+    if (!originalStudent) return;
+
+    const updatedClasses = classes.map((c) => {
+      if (c.id === activeClassId) {
+        return {
+          ...c,
+          students: c.students.filter((s) => s.id !== transferringStudentId),
+        };
+      }
+      if (c.id === transferSelectedClassId) {
+        return {
+          ...c,
+          students: [...c.students, { ...originalStudent, grade: c.name }],
+        };
+      }
+      return c;
+    });
+    onUpdateClasses(updatedClasses);
+    setTransferringStudentId(null);
+    setTransferSelectedClassId(null);
+  };
 
   return (
     <div className="space-y-6 pb-24 overflow-x-hidden">
@@ -2896,8 +3067,27 @@ const AttendanceScreen = ({
                 {activeClass.schedule.startTime} às{" "}
                 {activeClass.schedule.endTime}
               </p>
+              {!isRegencyDay && (
+                <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-lg flex gap-2 items-start">
+                   <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                   <div>
+                      <p className="text-xs font-bold text-amber-700 dark:text-amber-500">Fora dos dias de regência</p>
+                      <p className="text-[10px] font-medium text-amber-600 dark:text-amber-400">O dia selecionado não faz parte da agenda desta turma.</p>
+                   </div>
+                </div>
+              )}
             </div>
           ) : null}
+
+          <div className="flex gap-2">
+             <button
+               onClick={handleMarkAllPresent}
+               className="w-full flex items-center justify-center gap-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20 py-3 rounded-xl font-bold uppercase tracking-widest text-xs transition-colors border border-emerald-200 dark:border-emerald-800"
+             >
+                <CheckCircle2 className="w-4 h-4" />
+                Marcar Todos como Presentes
+             </button>
+          </div>
 
           {launchedDates.length > 0 && (
             <div className="space-y-2 mt-2">
@@ -3007,16 +3197,43 @@ const AttendanceScreen = ({
             </div>
           )}
 
-          <div className="relative">
-            <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Buscar aluno pelo nome..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:border-primary pl-12 pr-4 py-3 rounded-2xl font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-            />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Buscar aluno pelo nome..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 focus:border-primary pl-12 pr-4 py-3 rounded-2xl font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+              />
+            </div>
+            {onUpdateClasses && (
+              <button 
+                onClick={() => setIsAddingStudent(!isAddingStudent)}
+                className="bg-primary/10 text-primary hover:bg-primary hover:text-white px-4 py-3 rounded-2xl font-bold transition-colors flex items-center gap-2 shrink-0 border border-primary/20"
+              >
+                <Plus className="w-5 h-5" /> 
+                <span className="hidden sm:inline">Aluno</span>
+              </button>
+            )}
           </div>
+
+          {isAddingStudent && (
+             <div className="glass-card p-4 rounded-xl flex items-center gap-3">
+               <input
+                 autoFocus
+                 type="text"
+                 placeholder="Nome do novo aluno"
+                 value={newStudentName}
+                 onChange={(e) => setNewStudentName(e.target.value)}
+                 className="flex-1 bg-transparent border-b-2 border-primary outline-none font-bold text-sm text-slate-800 dark:text-white"
+                 onKeyDown={e => { if (e.key === "Enter") handleAddStudentSave(); if (e.key === "Escape") setIsAddingStudent(false); }}
+               />
+               <button onClick={handleAddStudentSave} className="text-[10px] font-bold text-green-500 bg-green-500/10 px-2.5 py-1.5 rounded-md uppercase">Salvar</button>
+               <button onClick={() => setIsAddingStudent(false)} className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 rounded-md uppercase">Cancelar</button>
+             </div>
+          )}
 
           <div className="grid grid-cols-3 gap-3">
             <div className="glass-card p-3 rounded-xl text-center">
@@ -3065,10 +3282,9 @@ const AttendanceScreen = ({
                     }`}
                   >
                     <div
-                      className="flex items-center gap-4 cursor-pointer flex-1"
-                      onClick={() => onSelectStudent(student.id)}
+                      className="flex items-center gap-4 flex-1"
                     >
-                      <div className="relative">
+                      <div className="relative cursor-pointer" onClick={() => onSelectStudent(student.id)}>
                         {student.avatar && student.avatar.trim() !== "" ? (
                           <img
                             src={student.avatar}
@@ -3097,17 +3313,58 @@ const AttendanceScreen = ({
                           </div>
                         )}
                       </div>
-                      <div className="font-manrope">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                            {student.name.toUpperCase()}
-                          </h3>
-                          <div className="flex gap-1">
-                            {student.specialNeeds?.map((need) => (
-                              <SpecialNeedBadge key={need} type={need} />
-                            ))}
+                      <div className="font-manrope flex-1">
+                        {editingStudentId === student.id ? (
+                           <div className="flex items-center gap-2 mb-1">
+                              <input 
+                                 autoFocus
+                                 value={editingStudentName} 
+                                 onChange={e => setEditingStudentName(e.target.value)}
+                                 className="bg-transparent border-b-2 border-primary outline-none font-bold text-sm text-slate-800 dark:text-white"
+                                 placeholder="Nome do Aluno"
+                                 onKeyDown={e => { if (e.key === "Enter") handleEditStudentSave(); if (e.key === "Escape") setEditingStudentId(null); }}
+                              />
+                              <button onClick={handleEditStudentSave} className="text-[10px] bg-green-500/10 text-green-500 px-2 rounded font-bold uppercase py-0.5">Salvar</button>
+                              <button onClick={() => setEditingStudentId(null)} className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-400 px-2 rounded font-bold uppercase py-0.5"><X className="w-3 h-3" /></button>
+                           </div>
+                        ) : (
+                          <div className="flex items-center gap-2 cursor-pointer" onClick={() => onSelectStudent(student.id)}>
+                            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                              {student.name.toUpperCase()}
+                            </h3>
+                            <div className="flex gap-1">
+                              {student.specialNeeds?.map((need) => (
+                                <SpecialNeedBadge key={need} type={need} />
+                              ))}
+                            </div>
+                            {onUpdateClasses && (
+                              <div className="flex gap-0.5 ml-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setTransferringStudentId(student.id);
+                                    setTransferSelectedClassId(null);
+                                  }}
+                                  className="text-slate-300 hover:text-blue-500 transition-colors focus:outline-none p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
+                                  title="Transferir Aluno para Outra Turma"
+                                >
+                                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingStudentId(student.id);
+                                    setEditingStudentName(student.name);
+                                  }}
+                                  className="text-slate-300 hover:text-primary transition-colors focus:outline-none p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800"
+                                  title="Editar Nome"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
+                        )}
                         <p
                           className={`text-[11px] font-extrabold uppercase ${
                             currentStatus === "absent"
@@ -3405,75 +3662,109 @@ const AttendanceScreen = ({
                       s.attendanceHistory?.[selectedCalendarDate] !== "none",
                   );
 
-                  if (hasDayRecords) {
-                    const allForDay = (activeClass?.students || []).map((s) => {
-                      const sStatus =
-                        s.attendanceHistory?.[selectedCalendarDate] || "none";
-                      return { ...s, currentStatus: sStatus };
-                    });
-
-                    const filtered = allForDay.filter((s) => {
-                      if (calendarFilter === "all") return true;
-                      return s.currentStatus === calendarFilter;
-                    });
-
+                  if (!hasDayRecords) {
                     return (
-                      <div className="space-y-4">
-                        {/* Filter pills */}
-                        <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl">
+                      <div className="text-center py-8 text-slate-400 dark:text-slate-500">
+                        <div className="space-y-4">
+                          <AlertTriangle className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
+                          <p className="font-bold text-slate-400 text-sm">
+                            Nenhuma chamada realizada para esta data.
+                          </p>
                           <button
                             type="button"
-                            onClick={() => setCalendarFilter("all")}
-                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                              calendarFilter === "all"
-                                ? "bg-white dark:bg-slate-700 text-primary shadow-sm"
-                                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                            }`}
+                            onClick={() => {
+                              setAttendanceDate(selectedCalendarDate);
+                              setViewMode("register");
+                            }}
+                            className="text-xs font-bold text-white bg-primary px-4 py-2 rounded-2xl hover:shadow-lg shadow-primary/20 transition-all uppercase tracking-widest cursor-pointer"
                           >
-                            Todos ({allForDay.length})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCalendarFilter("absent")}
-                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                              calendarFilter === "absent"
-                                ? "bg-red-500 text-white shadow-sm"
-                                : "text-slate-500 hover:text-red-500"
-                            }`}
-                          >
-                            Faltas ({absents.length})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCalendarFilter("present")}
-                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                              calendarFilter === "present"
-                                ? "bg-emerald-500 text-white shadow-sm"
-                                : "text-slate-500 hover:text-emerald-500"
-                            }`}
-                          >
-                            Presença ({presents.length})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCalendarFilter("late")}
-                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                              calendarFilter === "late"
-                                ? "bg-amber-500 text-white shadow-sm"
-                                : "text-slate-500 hover:text-amber-500"
-                            }`}
-                          >
-                            Atrasos ({lates.length})
+                            Lançar Chamada Agora
                           </button>
                         </div>
+                      </div>
+                    );
+                  }
 
-                        {/* List items */}
-                        <div className="space-y-3">
-                          {filtered.length === 0 ? (
-                            <div className="text-center py-10 text-slate-400 font-manrope font-bold">
-                              Nenhum aluno encontrado com este status.
-                            </div>
-                          ) : (
+                  const allForDay = (activeClass?.students || []).map((s) => {
+                    const sStatus =
+                      s.attendanceHistory?.[selectedCalendarDate] || "none";
+                    return { ...s, currentStatus: sStatus };
+                  });
+
+                  const filtered = allForDay.filter((s) => {
+                    if (calendarFilter === "all") return true;
+                    return s.currentStatus === calendarFilter;
+                  });
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Filter pills */}
+                      <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl">
+                        <button
+                          type="button"
+                          onClick={() => setCalendarFilter("all")}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                            calendarFilter === "all"
+                              ? "bg-white dark:bg-slate-700 text-primary shadow-sm"
+                              : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                          }`}
+                        >
+                          Todos ({allForDay.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCalendarFilter("absent")}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                            calendarFilter === "absent"
+                              ? "bg-red-500 text-white shadow-sm"
+                              : "text-slate-500 hover:text-red-500"
+                          }`}
+                        >
+                          Faltas ({absents.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCalendarFilter("present")}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                            calendarFilter === "present"
+                              ? "bg-emerald-500 text-white shadow-sm"
+                              : "text-slate-500 hover:text-emerald-500"
+                          }`}
+                        >
+                          Presença ({presents.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCalendarFilter("late")}
+                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
+                            calendarFilter === "late"
+                              ? "bg-amber-500 text-white shadow-sm"
+                              : "text-slate-500 hover:text-amber-500"
+                          }`}
+                        >
+                          Atrasos ({lates.length})
+                        </button>
+                      </div>
+
+                      {/* List items */}
+                      <div className="space-y-3">
+                        {filtered.length === 0 ? (
+                          <div className="text-center py-10 text-slate-400 font-manrope font-bold">
+                            {calendarFilter === "absent" && absents.length === 0 ? (
+                               <div className="space-y-2">
+                                 <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                                 <p className="font-bold text-emerald-500 text-sm">
+                                   Presença Completa! Todos os alunos compareceram neste dia. 🎉
+                                 </p>
+                                 <p className="text-[11px] font-bold text-slate-400">
+                                   Total de presentes: {presents.length} • Atrasos: {lates.length}
+                                 </p>
+                               </div>
+                            ) : (
+                               "Nenhum aluno encontrado com este status."
+                            )}
+                          </div>
+                        ) : (
                             filtered.map((student) => (
                               <div
                                 key={student.id}
@@ -3600,46 +3891,58 @@ const AttendanceScreen = ({
                         </div>
                       </div>
                     );
-                  }
-
-                  return (
-                    <div className="text-center py-8 text-slate-400 dark:text-slate-500">
-                      {hasDayRecords ? (
-                        <div className="space-y-2">
-                          <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                          <p className="font-bold text-emerald-500 text-sm">
-                            Presença Completa! Todos os alunos compareceram
-                            neste dia. 🎉
-                          </p>
-                          <p className="text-[11px] font-bold text-slate-400">
-                            Total de presentes: {presents.length} • Atrasos:{" "}
-                            {lates.length}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <AlertTriangle className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto" />
-                          <p className="font-bold text-slate-400 text-sm">
-                            Nenhuma chamada realizada para esta data.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAttendanceDate(selectedCalendarDate);
-                              setViewMode("register");
-                            }}
-                            className="text-xs font-bold text-white bg-primary px-4 py-2 rounded-2xl hover:shadow-lg shadow-primary/20 transition-all uppercase tracking-widest cursor-pointer"
-                          >
-                            Lançar Chamada para Este Dia
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
                 })()}
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {transferringStudentId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            onClick={() => setTransferringStudentId(null)}
+          ></div>
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden relative z-10 p-6 flex flex-col space-y-4">
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+              <ArrowRightLeft className="w-5 h-5 text-blue-500" /> Transferir Aluno
+            </h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Selecione para qual turma deseja transferir:
+            </p>
+            <select
+              value={transferSelectedClassId || ""}
+              onChange={(e) => setTransferSelectedClassId(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-200 dark:border-slate-700 p-3 rounded-xl font-bold dark:text-slate-100 outline-none focus:border-blue-500 transition-colors"
+            >
+              <option value="" disabled>
+                Escolha a turma alvo...
+              </option>
+              {classes
+                .filter((c) => c.id !== activeClassId)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+            <div className="flex justify-end gap-2 pt-4">
+              <button
+                onClick={() => setTransferringStudentId(null)}
+                className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleTransferStudent}
+                disabled={!transferSelectedClassId}
+                className="px-4 py-2 rounded-xl bg-blue-500 text-white font-bold disabled:opacity-50 hover:bg-blue-600 transition-colors"
+              >
+                Transferir
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -9322,35 +9625,20 @@ export default function App() {
   // Automatically seed past records for classes with empty/missing history
   const hasSeededRef = useRef(false);
 
-  // Recovery of missing attendance data (May 15, 19, 20, 21 and full Dexie sync)
+  const hasRecoveredRef = useRef(false);
+
+  // Recovery of missing attendance & occurrence data from offline Dexie
   useEffect(() => {
-    if (!appData || !appData.classes || appData.classes.length === 0) return;
-
-    const restoredKey = "horizonte_recovered_ai_seed_v4";
-    if (localStorage.getItem(restoredKey)) return;
-
-    const hashString = (str: string) => {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = (hash << 5) - hash + str.charCodeAt(i);
-        hash |= 0;
-      }
-      return Math.abs(hash);
-    };
-
-    const getSeedStatus = (studentId: string, dateStr: string) => {
-      const hash = hashString(`${studentId}-${dateStr}`);
-      const val = hash % 100;
-      if (val < 12) return "absent";
-      if (val < 20) return "late";
-      return "present";
-    };
+    if (!appData || hasRecoveredRef.current) return;
+    hasRecoveredRef.current = true;
 
     const fetchAndRecover = async () => {
       try {
         let dexieAttendances: any[] = [];
+        let dexieOccurrences: any[] = [];
         try {
           dexieAttendances = await dexieDb.attendance.toArray();
+          dexieOccurrences = await dexieDb.occurrences.toArray();
         } catch (e) {
           console.warn("Could not load dexie logs", e);
         }
@@ -9372,7 +9660,7 @@ export default function App() {
             }
           }
 
-          const updatedClasses = prev.classes.map((c) => {
+          const updatedClasses = (prev.classes || []).map((c) => {
             const classAttendances = dexieAttendances.filter(
               (a) => a.classId === c.id,
             );
@@ -9387,7 +9675,7 @@ export default function App() {
               > = { ...(student.attendanceHistory || {}) };
               let modified = false;
 
-              // 1. Recover from Dexie logs
+              // 1. Recover attendance from Dexie logs
               studentAttendances.forEach((a) => {
                 const safeStatus =
                   a.status === "justified" ? "absent" : a.status;
@@ -9397,7 +9685,6 @@ export default function App() {
                 }
               });
 
-              // (No force AI seeding logic anymore, real data from dexie only)
               if (modified) {
                 hasChanges = true;
                 return { ...student, attendanceHistory: newHistory };
@@ -9405,26 +9692,42 @@ export default function App() {
               return student;
             });
 
-            return { ...c, students: updatedStudents };
+            if (
+              updatedStudents.some(
+                (s, idx) => s !== (c.students || [])[idx],
+              )
+            ) {
+              return { ...c, students: updatedStudents };
+            }
+            return c;
+          });
+          
+          let prevOccurrences = prev.occurrences || [];
+          let occModified = false;
+          dexieOccurrences.forEach(occ => {
+             if (!prevOccurrences.some(o => o.id === occ.id)) {
+                prevOccurrences = [...prevOccurrences, occ];
+                occModified = true;
+                hasChanges = true;
+             }
           });
 
           if (hasChanges) {
             console.log(
-              "[Recovery] Restoring missing data from Dexie & Setting Admin Role.",
+              "[Recovery] Merged offline data from Dexie & Set Admin Role.",
             );
-            return { ...prev, classes: updatedClasses, role: updatedRole };
+            return { ...prev, classes: updatedClasses, role: updatedRole, occurrences: prevOccurrences };
           }
           return prev;
         });
 
-        localStorage.setItem(restoredKey, "true");
       } catch (err) {
         console.error("Recovery failed", err);
       }
     };
 
     fetchAndRecover();
-  }, [appData?.classes]);
+  }, [appData?.classes?.length]);
 
   // Local notification setup for calendar events 1 hour before start
   useEffect(() => {
@@ -10489,6 +10792,7 @@ export default function App() {
               setSelectedStudentId(id);
               setActiveScreen("occurrence");
             }}
+            onUpdateClasses={(updated) => updateAppData(prev => ({ ...prev, classes: updated }))}
             onUpdateStatus={(classId, studentId, date, status) => {
               updateAppData((prev) => ({
                 ...prev,

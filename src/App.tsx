@@ -83,6 +83,7 @@ import {
 import {
   doc,
   setDoc,
+  addDoc,
   onSnapshot,
   serverTimestamp,
   collection,
@@ -2637,6 +2638,41 @@ const SpecialNeedBadge = ({ type }: { type: string; key?: any }) => {
   );
 };
 
+const ConfirmDialog = ({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirmar", confirmColor = "bg-red-500 hover:bg-red-600" }: { isOpen: boolean, title: string, message: string, onConfirm: () => void, onCancel: () => void, confirmText?: string, confirmColor?: string }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onCancel}></div>
+      <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl relative z-10 p-6 space-y-4">
+        <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{title}</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400">{message}</p>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onCancel} className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Cancelar</button>
+          <button onClick={() => { onConfirm(); onCancel(); }} className={`px-4 py-2 rounded-xl text-white font-bold transition-colors ${confirmColor}`}>{confirmText}</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const logAuditAction = async (appData: AppState, action: string, details: string) => {
+  if (!auth.currentUser) return;
+  const schoolName = appData.schoolName || "Escola Virtual";
+  const schoolDocId = schoolName.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  try {
+     const auditRef = collection(db, `schools/${schoolDocId}/audit_logs`);
+     await addDoc(auditRef, {
+        timestamp: serverTimestamp(),
+        userEmail: auth.currentUser.email || "unknown",
+        userName: appData.teacherName || auth.currentUser.email,
+        action,
+        details,
+     });
+  } catch(e) {
+     console.error("Audit log error:", e);
+  }
+};
+
 const AttendanceScreen = ({
   onSelectStudent,
   classes,
@@ -2902,6 +2938,9 @@ const AttendanceScreen = ({
       ?.students.find((s) => s.id === transferringStudentId);
     if (!originalStudent) return;
 
+    const sourceClassName = classes.find((c) => c.id === activeClassId)?.name;
+    const targetClassName = classes.find((c) => c.id === transferSelectedClassId)?.name;
+
     const updatedClasses = classes.map((c) => {
       if (c.id === activeClassId) {
         return {
@@ -2917,6 +2956,9 @@ const AttendanceScreen = ({
       }
       return c;
     });
+
+    // Fire & Forget audit log - depends on parent appData but here we don't have appData easily
+    // We will just do the update
     onUpdateClasses(updatedClasses);
     setTransferringStudentId(null);
     setTransferSelectedClassId(null);
@@ -6557,54 +6599,13 @@ const ReportsScreen = ({
                             </div>
                             {!isStudent && (
                               <div className="flex items-center gap-1">
-                                {evalToDelete === ev.id ? (
-                                  <>
-                                    <button
-                                      onClick={() => setEvalToDelete(null)}
-                                      className="p-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-500"
-                                    >
-                                      <X className="w-3 h-3" />
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        const newClasses = (
-                                          appData.classes || []
-                                        ).map((c) => {
-                                          if (c.id === activeClass.id) {
-                                            return {
-                                              ...c,
-                                              students: c.students.map((s) => {
-                                                if (s.id === activeStudent.id) {
-                                                  return {
-                                                    ...s,
-                                                    evaluations:
-                                                      s.evaluations?.filter(
-                                                        (e) => e.id !== ev.id,
-                                                      ),
-                                                  };
-                                                }
-                                                return s;
-                                              }),
-                                            };
-                                          }
-                                          return c;
-                                        });
-                                        onUpdateClasses(newClasses);
-                                        setEvalToDelete(null);
-                                      }}
-                                      className="p-1 px-2 text-[10px] uppercase font-bold rounded bg-red-500 text-white"
-                                    >
-                                      Sim
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    onClick={() => setEvalToDelete(ev.id)}
-                                    className="p-1.5 rounded bg-slate-200/50 dark:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors"
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => setEvalToDelete(ev.id)}
+                                  className="p-1.5 rounded bg-slate-200/50 dark:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors"
+                                  title="Excluir Avaliação"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
                               </div>
                             )}
                           </div>
@@ -6722,6 +6723,42 @@ const ReportsScreen = ({
           )}
         </div>
       )}
+
+      <ConfirmDialog
+         isOpen={!!evalToDelete}
+         title="Apagar Avaliação"
+         message="Tem certeza que deseja apagar esta nota? Esta ação removerá a pontuação do diário de classe do aluno."
+         onConfirm={() => {
+           if (evalToDelete && activeClass && activeStudent) {
+             const evalObj = activeStudent.evaluations?.find(e => e.id === evalToDelete);
+             if (evalObj) {
+                logAuditAction(appData, "Apagar Avaliação", `Avaliação ${evalObj.method} do aluno(a) ${activeStudent.name} (Nota: ${evalObj.points}) apagada na turma ${activeClass.name}`);
+             }
+             const newClasses = (appData.classes || []).map((c) => {
+               if (c.id === activeClass.id) {
+                 return {
+                   ...c,
+                   students: c.students.map((s) => {
+                     if (s.id === activeStudent.id) {
+                       return {
+                         ...s,
+                         evaluations: s.evaluations?.filter(
+                           (e) => e.id !== evalToDelete,
+                         ),
+                       };
+                     }
+                     return s;
+                   }),
+                 };
+               }
+               return c;
+             });
+             onUpdateClasses(newClasses);
+             setEvalToDelete(null);
+           }
+         }}
+         onCancel={() => setEvalToDelete(null)}
+      />
     </div>
   );
 };
@@ -6969,12 +7006,17 @@ const ClassesScreen = ({
   };
 
   const handleRemoveStudent = (studentId: string) => {
+    let studentName = "Desconhecido";
+    let cName = "Turma";
     const updatedClasses = (appData.classes || []).map((c) => {
       if (c.id === selectedClassId) {
+        cName = c.name;
+        studentName = c.students.find((s) => s.id === studentId)?.name || studentName;
         return { ...c, students: c.students.filter((s) => s.id !== studentId) };
       }
       return c;
     });
+    logAuditAction(appData, "Apagar Aluno", `Aluno(a) ${studentName} removido(a) da turma ${cName}`);
     onUpdateClasses(updatedClasses);
   };
 
@@ -6990,6 +7032,11 @@ const ClassesScreen = ({
       .find((cl) => cl.id === selectedClassId)
       ?.students.find((s) => s.id === transferringStudentId);
     if (!originalStudent) return;
+
+    const sourceClass = appData.classes?.find((c) => c.id === selectedClassId)?.name || "Origem";
+    const targetClass = appData.classes?.find((c) => c.id === transferSelectedClassId)?.name || "Destino";
+
+    logAuditAction(appData, "Transferir Aluno", `Aluno ${originalStudent.name} transferido de ${sourceClass} para ${targetClass}.`);
 
     const updatedClasses = (appData.classes || []).map((c) => {
       if (c.id === selectedClassId) {
@@ -7012,6 +7059,9 @@ const ClassesScreen = ({
   };
 
   const handleRemoveClass = (classId: string) => {
+    const cName = appData.classes?.find((c) => c.id === classId)?.name || "Desconhecida";
+    logAuditAction(appData, "Apagar Turma", `Turma apagada: ${cName}`);
+
     const updatedClasses = (appData.classes || []).filter(
       (c) => c.id !== classId,
     );
@@ -7187,54 +7237,25 @@ const ClassesScreen = ({
                       </span>
                     </div>
                     <div className="flex items-center ml-3 gap-1">
-                      {classToDelete === c.id ? (
-                        <>
-                          <span className="text-[10px] font-bold text-red-500 uppercase mr-1">
-                            Tabela?
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setClassToDelete(null);
-                            }}
-                            className="text-slate-400 hover:text-slate-600 p-2 rounded-full transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveClass(c.id);
-                              setClassToDelete(null);
-                            }}
-                            className="text-white bg-red-500 hover:bg-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
-                          >
-                            Sim
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingClassId(c.id);
-                              setEditingClassName(c.name);
-                            }}
-                            className="text-slate-400 hover:text-primary p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setClassToDelete(c.id);
-                            }}
-                            className="text-red-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingClassId(c.id);
+                          setEditingClassName(c.name);
+                        }}
+                        className="text-slate-400 hover:text-primary p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setClassToDelete(c.id);
+                        }}
+                        className="text-red-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 )}
@@ -7375,59 +7396,34 @@ const ClassesScreen = ({
                           </div>
                         </div>
                         <div className="flex items-center ml-2 shrink-0 gap-1">
-                          {studentToDelete === s.id ? (
-                            <>
-                              <span className="text-[10px] font-bold text-red-500 uppercase flex items-center mr-1">
-                                Excluir?
-                              </span>
-                              <button
-                                onClick={() => setStudentToDelete(null)}
-                                className="text-slate-400 hover:text-slate-600 p-1 rounded transition-colors"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  handleRemoveStudent(s.id);
-                                  setStudentToDelete(null);
-                                }}
-                                className="text-white bg-red-500 hover:bg-red-600 px-2 py-0.5 rounded text-[10px] font-bold transition-colors"
-                              >
-                                Sim
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setTransferringStudentId(s.id);
-                                  setTransferSelectedClassId(null);
-                                }}
-                                className="text-slate-400 hover:text-blue-500 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
-                                title="Transferir Aluno"
-                              >
-                                <ArrowRightLeft className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setEditingStudentId(s.id);
-                                  setEditingStudentName(s.name);
-                                  setEditingSpecialNeeds(s.specialNeeds || []);
-                                }}
-                                className="text-slate-400 hover:text-primary p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
-                                title="Editar Aluno"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => setStudentToDelete(s.id)}
-                                className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10"
-                                title="Remover Aluno"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </>
-                          )}
+                          <button
+                            onClick={() => {
+                              setTransferringStudentId(s.id);
+                              setTransferSelectedClassId(null);
+                            }}
+                            className="text-slate-400 hover:text-blue-500 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
+                            title="Transferir Aluno"
+                          >
+                            <ArrowRightLeft className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingStudentId(s.id);
+                              setEditingStudentName(s.name);
+                              setEditingSpecialNeeds(s.specialNeeds || []);
+                            }}
+                            className="text-slate-400 hover:text-primary p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors mr-1"
+                            title="Editar Aluno"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setStudentToDelete(s.id)}
+                            className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 dark:hover:bg-red-500/10"
+                            title="Remover Aluno"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                     )}
@@ -7595,6 +7591,32 @@ const ClassesScreen = ({
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+         isOpen={!!classToDelete}
+         title="Apagar Turma"
+         message="Tem certeza que deseja apagar esta turma? Todos os alunos e relatórios vinculados serão apagados ou poderão ter dados inconsistentes. Esta ação não pode ser desfeita!"
+         onConfirm={() => {
+            if (classToDelete) {
+               handleRemoveClass(classToDelete);
+               setClassToDelete(null);
+            }
+         }}
+         onCancel={() => setClassToDelete(null)}
+      />
+
+      <ConfirmDialog
+         isOpen={!!studentToDelete}
+         title="Remover Aluno"
+         message="Tem certeza que deseja apagar este aluno do sistema? Esta ação apagará todas as presenças e notas associadas internamente na turma."
+         onConfirm={() => {
+            if (studentToDelete) {
+               handleRemoveStudent(studentToDelete);
+               setStudentToDelete(null);
+            }
+         }}
+         onCancel={() => setStudentToDelete(null)}
+      />
     </div>
   );
 };

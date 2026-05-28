@@ -98,6 +98,9 @@ import { Capacitor } from "@capacitor/core";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -1028,20 +1031,21 @@ const RegistrationScreen = ({
                     </div>
                   ) : schoolRegisterMode === "select" &&
                     registeredSchoolsList.length > 0 ? (
-                    <select
-                      value={schoolName}
-                      onChange={(e) => setSchoolName(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-slate-800/100 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                    >
-                      <option value="" disabled>
-                        -- Selecione sua Escola --
-                      </option>
-                      {registeredSchoolsList.map((school) => (
-                        <option key={school} value={school}>
-                          {school}
-                        </option>
-                      ))}
-                    </select>
+                    <div>
+                      <input
+                        type="text"
+                        list="registered-schools-list"
+                        value={schoolName}
+                        placeholder="Busque ou selecione sua escola..."
+                        onChange={(e) => setSchoolName(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-800/100 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                      />
+                      <datalist id="registered-schools-list">
+                        {registeredSchoolsList.map((school) => (
+                          <option key={school} value={school} />
+                        ))}
+                      </datalist>
+                    </div>
                   ) : (
                     <div className="space-y-4">
                       <input
@@ -1738,8 +1742,12 @@ const QuickGradeDialog = ({
     }
   }, [isOpen, appData.classes, selectedClassId]);
 
+  const [isSaving, setIsSaving] = useState(false);
+  const saveTimeoutRef = useRef<any>(null);
+
   useEffect(() => {
-    // Populate points map when activity or class changes
+    // Populate points map when activity or class changes ONLY IF it's empty or we're switching contexts
+    // To prevent overriding current typing, we only populate when class/activity/bimester change.
     const classes = appData.classes || [];
     const activeClass = classes.find((c) => c.id === selectedClassId);
     const students = activeClass?.students || [];
@@ -1757,7 +1765,7 @@ const QuickGradeDialog = ({
       });
     }
     setPointsMap(newPointsMap);
-  }, [selectedClassId, selectedActivity, evalBimester, appData.classes]);
+  }, [selectedClassId, selectedActivity, evalBimester]); // REMOVED appData.classes from dependencies to avoid loop
 
   if (!isOpen) return null;
 
@@ -1767,9 +1775,9 @@ const QuickGradeDialog = ({
     a.name.localeCompare(b.name),
   );
 
-  const handleApplyGrades = () => {
+  const handleApplyGrades = (silent = false) => {
     if (!activeClass || !selectedActivity.trim() || !onUpdateClasses) {
-      onShowNotification("Preencha a atividade e selecione uma turma.");
+      if (!silent) onShowNotification("Preencha a atividade e selecione uma turma.");
       return;
     }
 
@@ -1820,7 +1828,7 @@ const QuickGradeDialog = ({
     });
 
     if (updatedCount === 0) {
-      onShowNotification("Nenhuma alteração de nota.");
+      if (!silent) onShowNotification("Nenhuma alteração de nota.");
       return;
     }
 
@@ -1829,7 +1837,31 @@ const QuickGradeDialog = ({
     );
 
     onUpdateClasses(newClasses);
-    onShowNotification(`${updatedCount} nota(s) atualizada(s) com sucesso!`);
+    if (!silent) onShowNotification(`${updatedCount} nota(s) atualizada(s) com sucesso!`);
+  };
+
+  const triggerAutosave = () => {
+    setIsSaving(true);
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      handleApplyGrades(true);
+      setIsSaving(false);
+    }, 1500);
+  };
+
+  const handlePointChange = (studentId: string, val: string) => {
+    setPointsMap(prev => ({ ...prev, [studentId]: val }));
+    triggerAutosave();
+  };
+
+  const handleClose = async () => {
+    try {
+      const pendingCount = await dexieDb.syncQueue.count();
+      if (pendingCount > 0) {
+        onShowNotification("Atenção: há alterações pendentes aguardando conexão/sincronização com a nuvem.");
+      }
+    } catch(e) {}
+    onClose();
   };
 
   return (
@@ -1844,9 +1876,14 @@ const QuickGradeDialog = ({
           <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
             <h3 className="font-bold text-lg text-slate-800 dark:text-slate-100 flex items-center gap-2">
               <Award className="w-5 h-5 text-primary" /> Lançamento de Notas
+              {isSaving && (
+                <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-bold ml-2 animate-pulse">
+                  Salvando...
+                </span>
+              )}
             </h3>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <X className="w-5 h-5 text-slate-500" />
@@ -1924,12 +1961,7 @@ const QuickGradeDialog = ({
                         type="number"
                         placeholder="0.0"
                         value={pointsMap[student.id] || ""}
-                        onChange={(e) =>
-                          setPointsMap({
-                            ...pointsMap,
-                            [student.id]: e.target.value,
-                          })
-                        }
+                        onChange={(e) => handlePointChange(student.id, e.target.value)}
                         className="w-20 text-center font-mono font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:border-primary shrink-0"
                       />
                     </div>
@@ -2032,6 +2064,50 @@ const TeacherDashboard = ({
       count,
     };
   });
+
+  let absenceChartHasData = false;
+  const absenceChartData: any[] = [];
+  
+  if (selectedClassObj && selectedClassObj.students && selectedClassObj.students.length > 0) {
+    const dObj = new Date();
+    const last30DaysRaw = Array.from({ length: 30 }).map((_, i) => {
+       const d = new Date(dObj);
+       d.setDate(d.getDate() - i);
+       // Re-implement getLocalDateString functionality inline to match the timezone used in saves
+       d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+       return d.toISOString().split("T")[0];
+    });
+    
+    last30DaysRaw.reverse();
+    
+    const validDates = last30DaysRaw.filter(date => {
+       return selectedClassObj.students.some(s => s.attendanceHistory && s.attendanceHistory[date] && s.attendanceHistory[date] !== "none");
+    });
+
+    validDates.forEach(dateStr => {
+       let absCount = 0;
+       let totalValid = 0;
+       selectedClassObj.students.forEach(s => {
+          const st = s.attendanceHistory?.[dateStr];
+          if (st && st !== "none") {
+             totalValid++;
+             if (st === "absent" || st === "justified_absence") absCount++;
+          }
+       });
+       
+       if (totalValid > 0) {
+         absenceChartHasData = true;
+         const splitD = dateStr.split("-");
+         const shortDate = `${splitD[2]}/${splitD[1]}`;
+         const percent = Math.round((absCount / totalValid) * 100);
+         absenceChartData.push({
+           date: shortDate,
+           Faltas: percent,
+           total: totalValid
+         });
+       }
+    });
+  }
 
   const allStudents = (appData.classes || []).flatMap((c) => c.students) || [];
   const totalStudents = allStudents.length;
@@ -2425,6 +2501,88 @@ const TeacherDashboard = ({
           </div>
         )}
       </section>
+
+      {/* Gráfico de Faltas (BarChart) */}
+      <section className="glass-card rounded-3xl p-6 space-y-4">
+        <div>
+          <h3 className="text-sm font-extrabold text-[#1a1b21] dark:text-slate-50 uppercase tracking-widest">
+            Porcentagem de Faltas
+          </h3>
+          <p className="text-xs text-slate-400 dark:text-slate-500 font-manrope">
+            Histórico dos últimos 30 dias na turma selecionada
+          </p>
+        </div>
+
+        {selectedClassObj ? (
+          <div>
+            {absenceChartHasData ? (
+              <div className="pt-2">
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart
+                    data={absenceChartData}
+                    margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      opacity={0.1}
+                    />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#94a3b8"
+                      tick={{ fontSize: 10, fontWeight: "bold" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      stroke="#94a3b8"
+                      tick={{ fontSize: 10, fontWeight: "bold" }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickCount={6}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                    <RechartsTooltip
+                      contentStyle={{
+                        background: "rgba(30, 41, 59, 0.95)",
+                        border: "none",
+                        borderRadius: "12px",
+                        boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
+                        color: "#fff",
+                      }}
+                      itemStyle={{ color: "#ef4444" }}
+                      labelStyle={{ color: "#fff", fontWeight: "bold" }}
+                      formatter={(value: any) => [`${value}%`, "Faltas"]}
+                    />
+                    <Bar
+                      dataKey="Faltas"
+                      fill="#ef4444"
+                      radius={[4, 4, 0, 0]}
+                      maxBarSize={40}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-center py-12 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-700/50 border-dashed">
+                <p className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
+                  Nenhum dado de chamada recente.
+                </p>
+                <p className="text-[11px] text-slate-500 font-manrope mt-1">
+                  Realize chamadas na turma selecionada para ver o histórico de faltas.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-12 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-700/50 border-dashed">
+            <p className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
+              Nenhuma turma disponível.
+            </p>
+          </div>
+        )}
+      </section>
     </div>
   );
 };
@@ -2670,6 +2828,7 @@ const logAuditAction = async (appData: AppState, action: string, details: string
      const auditRef = collection(db, `schools/${schoolDocId}/audit_logs`);
      await addDoc(auditRef, {
         timestamp: serverTimestamp(),
+        userId: auth.currentUser.uid || "unknown",
         userEmail: auth.currentUser.email || "unknown",
         userName: appData.teacherName || auth.currentUser.email,
         action,
@@ -2956,6 +3115,9 @@ const AttendanceScreen = ({
       !onUpdateClasses
     )
       return;
+      
+    if (!window.confirm("Atenção: Ao confirmar esta transferência, o aluno será movido para a nova turma. Deseja prosseguir?")) return;
+
     const originalStudent = classes
       .find((cl) => cl.id === activeClassId)
       ?.students.find((s) => s.id === transferringStudentId);
@@ -7067,6 +7229,9 @@ const ClassesScreen = ({
       transferSelectedClassId === selectedClassId
     )
       return;
+      
+    if (!window.confirm("Atenção: Ao confirmar esta transferência, as notas também poderão ser movidas para a nova turma. Deseja prosseguir com a transferência da matrícula?")) return;
+
     const originalStudent = (appData.classes || [])
       .find((cl) => cl.id === selectedClassId)
       ?.students.find((s) => s.id === transferringStudentId);
@@ -8082,15 +8247,26 @@ const SettingsScreen = ({
             />
           </div>
           <div>
-            <label className="text-[10px] font-bold text-primary uppercase ml-1">
+            <label className="text-[10px] font-bold text-primary uppercase ml-1 block mb-1">
               Nome da Escola
             </label>
             <input
               type="text"
               value={appData.schoolName}
               onChange={(e) => onUpdateField("schoolName", e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+              readOnly={!isAdmin}
+              disabled={!isAdmin}
+              className={`w-full bg-slate-50 border-b-2 px-4 py-3 rounded-t-lg font-medium outline-none transition-colors ${
+                isAdmin 
+                  ? "dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 focus:border-primary text-slate-700 dark:text-slate-200" 
+                  : "dark:bg-slate-900/50 border-transparent text-slate-500 dark:text-slate-400 cursor-not-allowed opacity-70"
+              }`}
             />
+            {!isAdmin && (
+              <p className="text-[9px] text-slate-400 mt-1 ml-1">
+                Apenas gestores confirmados podem alterar o nome da instituição.
+              </p>
+            )}
           </div>
           <div>
             <label className="text-[10px] font-bold text-primary uppercase ml-1">
@@ -8132,7 +8308,7 @@ const SettingsScreen = ({
           </div>
           <div className="pt-2">
             <label className="text-[10px] font-bold text-primary uppercase ml-1 block mb-2">
-              Dias da Semana em que ensina (Regência)
+              Dias de Regência Gerais
             </label>
             <div className="flex flex-wrap gap-2">
               {["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"].map((day) => {
@@ -8158,8 +8334,51 @@ const SettingsScreen = ({
                 );
               })}
             </div>
-            <p className="text-[10px] text-slate-400 mt-2 ml-1 font-medium">Marcando os dias acima, você não receberá alertas de "fora dos dias de regência".</p>
           </div>
+
+          {appData.classes && appData.classes.length > 0 && (
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+              <label className="text-[10px] font-bold text-primary uppercase ml-1 block mb-3">
+                Dias de Regência Específicos por Turma
+              </label>
+              <div className="space-y-4">
+                {appData.classes.map((cls) => (
+                  <div key={cls.id} className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+                     <p className="text-xs font-bold text-slate-800 dark:text-slate-100 mb-2">{cls.name}</p>
+                     <div className="flex flex-wrap gap-2">
+                       {["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"].map((day) => {
+                         const currentClassDays = cls.schedule?.days || [];
+                         const isActive = currentClassDays.includes(day);
+                         return (
+                           <button
+                             key={day}
+                             onClick={() => {
+                               const newDays = isActive
+                                 ? currentClassDays.filter(d => d !== day)
+                                 : [...currentClassDays, day];
+                               const newClasses = appData.classes!.map(c => 
+                                 c.id === cls.id ? { ...c, schedule: { ...c.schedule, days: newDays } } : c
+                               );
+                               onUpdateField("classes", newClasses);
+                             }}
+                             className={`px-2.5 py-1 rounded-full text-[9px] font-bold transition-colors ${
+                               isActive
+                                 ? "bg-primary text-white"
+                                 : "bg-white dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-600"
+                             }`}
+                           >
+                             {day}
+                           </button>
+                         );
+                       })}
+                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <p className="text-[10px] text-slate-400 mt-2 ml-1 font-medium">Os dias específicos de cada turma prevalecem sobre os gerais no bloqueio de chamadas indevidas.</p>
           
           <div className="pt-6 mt-4 border-t border-slate-100 dark:border-slate-700/50">
             <h4 className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-4">
@@ -8376,7 +8595,7 @@ const AdminScreen = ({
   isGestorEscolar?: boolean;
 }) => {
   const [activeTab, setActiveTab] = useState<
-    "access" | "billing" | "notices" | "api_keys"
+    "access" | "billing" | "notices" | "api_keys" | "classes"
   >("access");
   const [noticeText, setNoticeText] = useState("");
   const [noticeType, setNoticeType] = useState<"info" | "warning" | "critical">(
@@ -8847,7 +9066,7 @@ const AdminScreen = ({
       )}
 
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-        {(isSuperAdmin ? (["access", "billing", "notices", "api_keys"] as const) : (["access"] as const)).map((tab) => (
+        {(isSuperAdmin ? (["access", "classes", "billing", "notices", "api_keys"] as const) : (["access", "classes"] as const)).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab as any)}
@@ -8863,7 +9082,9 @@ const AdminScreen = ({
                 ? "Cobrança e Ativação"
                 : tab === "notices"
                   ? "Avisos"
-                  : "APIs / Parceiros"}
+                  : tab === "classes"
+                    ? "Turmas da Escola"
+                    : "APIs / Parceiros"}
           </button>
         ))}
       </div>
@@ -9005,6 +9226,84 @@ const AdminScreen = ({
                 </p>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "classes" && (
+        <div className="glass-card p-6 rounded-3xl space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Users className="w-5 h-5 text-primary" />
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">
+              Gestão Centralizada de Turmas
+            </h3>
+          </div>
+          <p className="text-xs text-slate-500 font-medium mb-4">
+            Aqui você visualizar todas as turmas de professores da mesma escola ({appData.schoolName || "sua escola"}).
+          </p>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+            {(() => {
+              const allClasses: any[] = [];
+              adminUserList.forEach(u => {
+                // If gestor is viewing, we only want their school's classes, but query already filters it.
+                if (u.classesStr) {
+                  try {
+                    const parsed = JSON.parse(u.classesStr);
+                    if (Array.isArray(parsed)) {
+                      parsed.forEach(c => {
+                        allClasses.push({
+                          ...c,
+                          _teacherId: u.id,
+                          _teacherName: u.teacherName || u.schoolName || u.email || "Desconhecido"
+                        });
+                      });
+                    }
+                  } catch(e){}
+                } else if (u.classes && Array.isArray(u.classes)) {
+                  u.classes.forEach((c: any) => {
+                    allClasses.push({
+                      ...c,
+                      _teacherId: u.id,
+                      _teacherName: u.teacherName || u.schoolName || u.email || "Desconhecido"
+                    });
+                  });
+                }
+              });
+
+              if (allClasses.length === 0) {
+                 return <p className="text-xs text-slate-500 italic">Nenhuma turma encontrada na escola.</p>;
+              }
+
+              return allClasses.map((cls, idx) => (
+                <div key={cls.id || idx} className="p-4 bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl relative overflow-hidden group">
+                   <div className="flex justify-between items-start">
+                     <div>
+                       <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm">
+                         {cls.name}
+                       </h4>
+                       <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">
+                         Prof. {cls._teacherName}
+                       </p>
+                     </div>
+                     <div className="px-2 py-1 bg-primary/10 text-primary font-bold text-[10px] uppercase tracking-wider rounded-lg">
+                       {cls.students?.length || 0} alunos
+                     </div>
+                   </div>
+                   {cls.students && cls.students.length > 0 && (
+                     <div className="mt-3 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap gap-1">
+                       {cls.students.slice(0, 5).map((s: any) => (
+                         <span key={s.id} className="bg-white dark:bg-slate-700 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600">
+                           {s.name.split(" ")[0]}
+                         </span>
+                       ))}
+                       {cls.students.length > 5 && (
+                         <span className="font-bold text-[9px] px-1 py-0.5 mt-0.5">+{cls.students.length - 5}</span>
+                       )}
+                     </div>
+                   )}
+                </div>
+              ));
+            })()}
           </div>
         </div>
       )}
@@ -9785,6 +10084,8 @@ export default function App() {
   } | null>(null);
   const [showSyncConsent, setShowSyncConsent] = useState(false);
   const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
+  const [appUpdateAvailable, setAppUpdateAvailable] = useState(false);
+  const [acceptAppUpdate, setAcceptAppUpdate] = useState<(() => void) | null>(null);
 
   // Automatically seed past records for classes with empty/missing history
   const hasSeededRef = useRef(false);
@@ -10004,6 +10305,12 @@ export default function App() {
 
     window.addEventListener("online", handleOnline);
 
+    const handleAppUpdate = (e: any) => {
+      setAcceptAppUpdate(() => e.detail?.acceptUpdate);
+      setAppUpdateAvailable(true);
+    };
+    window.addEventListener("app-update-available", handleAppUpdate);
+
     // Attempt auto-sync right after mount if online and has token
     if (navigator.onLine && localStorage.getItem("google_access_token")) {
       handleOnline();
@@ -10049,7 +10356,10 @@ export default function App() {
     };
     fixJefsonProfile();
 
-    return () => window.removeEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("app-update-available", handleAppUpdate);
+    };
   }, []);
 
   const updateAppData = (updater: (prev: AppState) => AppState) => {
@@ -11465,6 +11775,46 @@ export default function App() {
           }
         />
       )}
+
+      {/* App Update Prompt */}
+      <AnimatePresence>
+        {appUpdateAvailable && acceptAppUpdate && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-24 left-4 right-4 z-[200] max-w-md mx-auto"
+          >
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
+              <div className="flex-1">
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-1">
+                  <RefreshCw className="w-4 h-4 text-blue-500" /> Nova Atualização!
+                </h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                  Uma nova versão do sistema está disponível. Atualize para receber as últimas melhorias.
+                </p>
+              </div>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setAppUpdateAvailable(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex-1"
+                >
+                  Depois
+                </button>
+                <button
+                  onClick={() => {
+                    setAppUpdateAvailable(false);
+                    acceptAppUpdate();
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors flex-1 whitespace-nowrap"
+                >
+                  Atualizar Agora
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Sync Consent Modal */}
       <AnimatePresence>

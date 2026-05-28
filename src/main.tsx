@@ -5,11 +5,15 @@ import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
 // Simple auto-update for PWA with periodic checks
-const updateSW = registerSW({
+export const updateSW = registerSW({
   onNeedRefresh() {
-    if (confirm('Nova versão disponível! Deseja atualizar agora?')) {
-      updateSW(true);
-    }
+    // Dispatch a custom event that App.tsx can listen to, passing the update function
+    const event = new CustomEvent("app-update-available", {
+      detail: {
+        acceptUpdate: () => updateSW(true)
+      }
+    });
+    window.dispatchEvent(event);
   },
   onOfflineReady() {
     console.log('App pronto para uso offline');

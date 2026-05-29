@@ -1161,6 +1161,20 @@ const RegistrationScreen = ({
                         localStorage.setItem("google_access_token", token);
                       }
                       
+                      // Check if user exists before registering
+                      const email = result.user.email;
+                      if (email) {
+                        const { collection, query, where, getDocs } = await import("firebase/firestore");
+                        const q = query(collection(db, "users"), where("email", "==", email));
+                        const qSnap = await getDocs(q);
+                        if (!qSnap.empty) {
+                          const userData = qSnap.docs[0].data() as AppState;
+                          onComplete(userData);
+                          if (onShowNotification) onShowNotification("Conta existente encontrada! Login automático.", "info");
+                          return;
+                        }
+                      }
+
                       onComplete({
                         schoolName,
                         schoolCity,
@@ -1172,6 +1186,8 @@ const RegistrationScreen = ({
                         cpf,
                         password: "", // Semanticly no password since it's google
                         googleSynced: true,
+                        googleCalendarSynced: false,
+                        googleClassroomSynced: false,
                         classes: [],
                         occurrences: [],
                         isApprovedManager:

@@ -172,9 +172,9 @@ interface Student {
   avatar: string;
   grade: string;
   room: string;
-  status: "present" | "absent" | "late" | "none";
+  status: "present" | "absent" | "late" | "justified" | "none";
   offset?: string; // for late students
-  attendanceHistory?: Record<string, "present" | "absent" | "late" | "none">;
+  attendanceHistory?: Record<string, "present" | "absent" | "late" | "justified" | "justified_absence" | "none">;
   diagnostic?: string;
   evaluations?: StudentEvaluation[];
   specialNeeds?: string[]; // e.g., ['TEA', 'DI']
@@ -274,6 +274,8 @@ const Header = ({
   onSettings,
   avatarUrl,
   onNavigateDirector,
+  appUpdateAvailable,
+  adminNotices = [],
 }: {
   title: string;
   showBack?: boolean;
@@ -281,6 +283,8 @@ const Header = ({
   onSettings?: () => void;
   avatarUrl?: string;
   onNavigateDirector?: () => void;
+  appUpdateAvailable?: boolean;
+  adminNotices?: any[];
 }) => {
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains("dark"),
@@ -326,7 +330,9 @@ const Header = ({
             className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors active:scale-90 text-primary relative"
           >
             <Bell className="w-5 h-5" />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-800" />
+            {adminNotices.length > 0 && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-800" />
+            )}
           </button>
 
           <AnimatePresence>
@@ -340,29 +346,34 @@ const Header = ({
                   initial={{ opacity: 0, y: 10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  className="absolute top-12 right-0 w-72 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 origin-top-right"
+                  className="absolute top-12 right-0 w-72 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-700 p-4 z-50 origin-top-right max-h-[70vh] overflow-y-auto"
                 >
                   <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-3 text-sm">
                     Notificações e Recados
                   </h3>
                   <div className="space-y-3">
-                    <div className="bg-primary/5 p-3 rounded-xl border border-primary/10">
-                      <p className="text-[10px] font-bold text-primary uppercase mb-1 drop-shadow-sm">
-                        Recado da Escola
-                      </p>
-                      <p className="text-xs text-slate-600 dark:text-slate-300">
-                        Reunião de pais e mestres agendada para a próxima
-                        sexta-feira as 19:00.
-                      </p>
-                    </div>
-                    <div className="bg-amber-500/5 p-3 rounded-xl border border-amber-500/10">
-                      <p className="text-[10px] font-bold text-amber-500 uppercase mb-1 drop-shadow-sm">
-                        Sistema
-                      </p>
-                      <p className="text-xs text-slate-600 dark:text-slate-300">
-                        Sincronização com o Google Drive ativada com sucesso.
-                      </p>
-                    </div>
+                    {adminNotices.length > 0 ? (
+                      adminNotices.map((notice) => (
+                        <div key={notice.id} className={`p-3 rounded-xl border ${
+                          notice.type === "critical" ? "bg-red-500/5 border-red-500/10" :
+                          notice.type === "warning" ? "bg-amber-500/5 border-amber-500/10" :
+                          "bg-primary/5 border-primary/10"
+                        }`}>
+                          <p className={`text-[10px] font-bold uppercase mb-1 drop-shadow-sm ${
+                            notice.type === "critical" ? "text-red-500" :
+                            notice.type === "warning" ? "text-amber-500" :
+                            "text-primary"
+                          }`}>
+                            {notice.type === "critical" ? "Urgente" : notice.type === "warning" ? "Aviso" : "Recado da Escola"}
+                          </p>
+                          <p className="text-xs text-slate-600 dark:text-slate-300">
+                            {notice.text}
+                          </p>
+                        </div>
+                      ))
+                    ) : (
+                       <p className="text-xs text-slate-600 dark:text-slate-400 text-center py-4">Nenhum recado no momento.</p>
+                    )}
                   </div>
                   <button
                     onClick={() => setShowNotifications(false)}
@@ -376,24 +387,19 @@ const Header = ({
           </AnimatePresence>
         </div>
 
-        {onSettings && (
-          <button
-            onClick={onSettings}
-            className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors active:scale-90 text-primary"
-          >
-            <UserCircle className="w-5 h-5" />
-          </button>
-        )}
         <motion.div
           whileTap={{ scale: 0.9 }}
-          onClick={onNavigateDirector}
-          className="w-10 h-10 rounded-full overflow-hidden border-2 border-slate-200 dark:border-slate-700 flex-shrink-0 cursor-pointer hover:border-primary/50 transition-colors"
+          onClick={onSettings}
+          className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-slate-200 dark:border-slate-700 flex-shrink-0 cursor-pointer hover:border-primary/50 transition-colors"
         >
           <img
             src={avatarUrl?.trim() || TEACHER_AVATAR}
             alt="User Avatar"
             className="w-full h-full object-cover"
           />
+          {appUpdateAvailable && (
+            <span className="absolute top-0 right-0 w-3 h-3 bg-blue-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"></span>
+          )}
         </motion.div>
       </div>
     </header>
@@ -512,6 +518,7 @@ interface AppState {
   avatarUrl?: string;
   birthDate?: string;
   cpf?: string;
+  email?: string;
   password?: string;
   teachingDays?: string[];
   googleSynced?: boolean;
@@ -641,13 +648,12 @@ const RegistrationScreen = ({
   onShowNotification?: (msg: string, type: "critical" | "info") => void;
 }) => {
   const [step, setStep] = useState(0); // step 0 is for role selection
-  const [role, setRole] = useState<
-    "teacher" | "student" | "both" | "school_director" | "school_secretary" | "guardian"
-  >("teacher");
+  const [role, setRole] = useState<"teacher" | "institution">("teacher");
   const [schoolName, setSchoolName] = useState("");
   const [schoolCity, setSchoolCity] = useState("");
   const [schoolState, setSchoolState] = useState("");
   const [teacherName, setTeacherName] = useState("");
+  const [email, setEmail] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [cpf, setCpf] = useState("");
   const [teacherSubject, setTeacherSubject] = useState("");
@@ -728,7 +734,7 @@ const RegistrationScreen = ({
 
   const nextStep = () => {
     if (step === 0 && role) setStep(1);
-    else if (step === 1 && schoolName && teacherName && birthDate) {
+    else if (step === 1 && schoolName && teacherName && birthDate && email && password) {
       if (schoolRegisterMode === "new" && (!schoolCity || !schoolState)) {
         if (onShowNotification)
           onShowNotification(
@@ -737,25 +743,19 @@ const RegistrationScreen = ({
           );
         return;
       }
-      if (
-        role === "student" ||
-        role === "school_director" ||
-        role === "school_secretary" ||
-        role === "guardian"
-      ) {
+      if (role === "institution") {
         onComplete({
           schoolName,
           teacherName,
-          role,
+          role: "school_director", // Keep logic compatible
           birthDate,
-          cpf: "",
-          password: "",
+          email,
+          cpf,
+          password,
           googleSynced: true,
           classes: [],
           occurrences: [],
-          isApprovedManager:
-            (role === "school_director" || role === "school_secretary") &&
-            schoolRegisterMode === "new",
+          isApprovedManager: schoolRegisterMode === "new",
         });
       } else {
         setStep(2);
@@ -785,7 +785,7 @@ const RegistrationScreen = ({
         .filter((name) => name.length > 0)
         .map((name, index) => ({
           id: Date.now().toString() + index,
-          name,
+          name: name.toUpperCase(),
           avatar: "",
           grade: classes.find((c) => c.id === activeClassId)?.name || "",
           room: "",
@@ -827,7 +827,7 @@ const RegistrationScreen = ({
           const newStudents = names.map((name, idx) => {
             const stu = {
               id: Date.now().toString() + idx,
-              name: name,
+              name: name.toUpperCase(),
               avatar: "",
               grade: c.name,
               room: "N/A",
@@ -885,25 +885,6 @@ const RegistrationScreen = ({
             <div className="space-y-6 text-left">
               <div className="grid grid-cols-1 gap-4">
                 <button
-                  onClick={() => setRole("student")}
-                  className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "student" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
-                >
-                  <div
-                    className={`p-3 rounded-xl ${role === "student" ? "bg-primary text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}
-                  >
-                    <Book className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-800 dark:text-slate-100">
-                      Sou Aluno
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      Acompanhar minhas aulas e atividades
-                    </p>
-                  </div>
-                </button>
-
-                <button
                   onClick={() => setRole("teacher")}
                   className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "teacher" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
                 >
@@ -923,43 +904,25 @@ const RegistrationScreen = ({
                 </button>
 
                 <button
-                  onClick={() => setRole("guardian")}
-                  className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "guardian" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
+                  onClick={() => setRole("institution")}
+                  className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "institution" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
                 >
                   <div
-                    className={`p-3 rounded-xl ${role === "guardian" ? "bg-primary text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}
+                    className={`p-3 rounded-xl ${role === "institution" ? "bg-primary text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}
                   >
-                    <Users className="w-6 h-6" />
+                    <Book className="w-6 h-6" />
                   </div>
                   <div>
                     <h3 className="font-bold text-slate-800 dark:text-slate-100">
-                      Sou Pais/Responsável
+                      Sou Instituição
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      Acompanhar meus filhos
-                    </p>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => setRole("school_director")}
-                  className={`p-4 rounded-2xl flex items-center gap-4 border-2 transition-all text-left ${role === "school_director" ? "border-primary bg-primary/5" : "border-slate-100 dark:border-slate-700/50 hover:border-primary/50"}`}
-                >
-                  <div
-                    className={`p-3 rounded-xl ${role === "school_director" ? "bg-primary text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}
-                  >
-                    <Shield className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-800 dark:text-slate-100">
-                      Sou Diretor(a)
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      Cadastrar nova escola
+                      Gerenciar dados escolares e acessos
                     </p>
                   </div>
                 </button>
               </div>
+
 
               <button
                 onClick={nextStep}
@@ -1037,7 +1000,7 @@ const RegistrationScreen = ({
                         list="registered-schools-list"
                         value={schoolName}
                         placeholder="Busque ou selecione sua escola..."
-                        onChange={(e) => setSchoolName(e.target.value)}
+                        onChange={(e) => setSchoolName(e.target.value.toUpperCase())}
                         className="w-full bg-slate-50 dark:bg-slate-800/100 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
                       />
                       <datalist id="registered-schools-list">
@@ -1051,8 +1014,8 @@ const RegistrationScreen = ({
                       <input
                         type="text"
                         value={schoolName}
-                        onChange={(e) => setSchoolName(e.target.value)}
-                        placeholder="Ex: Colégio Horizonte"
+                        onChange={(e) => setSchoolName(e.target.value.toUpperCase())}
+                        placeholder="Ex: COLÉGIO HORIZONTE"
                         className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
                       />
                       <div className="flex gap-4">
@@ -1075,7 +1038,7 @@ const RegistrationScreen = ({
                           <input
                             type="text"
                             value={schoolState}
-                            onChange={(e) => setSchoolState(e.target.value)}
+                            onChange={(e) => setSchoolState(e.target.value.substring(0, 2).toUpperCase())}
                             placeholder="SP"
                             maxLength={2}
                             className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors uppercase"
@@ -1100,6 +1063,18 @@ const RegistrationScreen = ({
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-primary uppercase ml-1">
+                  E-mail
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Seu e-mail"
+                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-primary uppercase ml-1">
                   Seu CPF
                 </label>
                 <input
@@ -1107,6 +1082,18 @@ const RegistrationScreen = ({
                   value={cpf}
                   onChange={(e) => setCpf(e.target.value.replace(/\D/g, "").slice(0,11))}
                   placeholder="Somente números"
+                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-primary uppercase ml-1">
+                  Senha
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
                   className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
                 />
               </div>
@@ -1400,8 +1387,9 @@ const RegistrationScreen = ({
                     teacherName,
                     role,
                     birthDate,
-                    cpf: "",
-                    password: "",
+                    email,
+                    cpf,
+                    password,
                     googleSynced: true,
                     classes,
                     occurrences: [],
@@ -1772,7 +1760,7 @@ const QuickGradeDialog = ({
   const classes = appData.classes || [];
   const activeClass = classes.find((c) => c.id === selectedClassId);
   const students = [...(activeClass?.students || [])].sort((a, b) =>
-    a.name.localeCompare(b.name),
+    a.name.toUpperCase().localeCompare(b.name.toUpperCase()),
   );
 
   const handleApplyGrades = (silent = false) => {
@@ -3041,7 +3029,7 @@ const AttendanceScreen = ({
   }, [activeClass?.students]);
 
   const sortedStudents = [...students].sort((a, b) =>
-    a.name.localeCompare(b.name),
+    a.name.toUpperCase().localeCompare(b.name.toUpperCase()),
   );
 
   const filteredStudents = sortedStudents.filter((student) =>
@@ -3055,8 +3043,8 @@ const AttendanceScreen = ({
   const presentCount = students.filter(
     (s) => getStudentStatus(s) === "present",
   ).length;
-  const exceptionCount = students.filter(
-    (s) => getStudentStatus(s) !== "present" && getStudentStatus(s) !== "none",
+  const absentCount = students.filter(
+    (s) => getStudentStatus(s) === "absent",
   ).length;
 
   const handleEditStudentSave = () => {
@@ -3065,7 +3053,7 @@ const AttendanceScreen = ({
       if (c.id === activeClassId) {
         return {
           ...c,
-          students: c.students.map(s => s.id === editingStudentId ? { ...s, name: editingStudentName.trim() } : s)
+          students: c.students.map(s => s.id === editingStudentId ? { ...s, name: editingStudentName.trim().toUpperCase() } : s)
         };
       }
       return c;
@@ -3079,7 +3067,7 @@ const AttendanceScreen = ({
     if (!newStudentName.trim() || !activeClassId || !onUpdateClasses) return;
     const newS = {
       id: "std_" + Date.now(),
-      name: newStudentName.trim(),
+      name: newStudentName.trim().toUpperCase(),
       avatar: "",
       grade: activeClass?.name || "",
       room: "N/A",
@@ -3485,10 +3473,10 @@ const AttendanceScreen = ({
             </div>
             <div className="glass-card p-3 rounded-xl text-center">
               <p className="text-[10px] font-bold text-slate-400 uppercase">
-                Exceções
+                Faltas
               </p>
               <p className="text-xl font-bold text-secondary">
-                {exceptionCount}
+                {absentCount}
               </p>
             </div>
           </div>
@@ -3976,73 +3964,27 @@ const AttendanceScreen = ({
                   return (
                     <div className="space-y-4">
                       {/* Filter pills */}
-                      <div className="flex flex-wrap gap-2 p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl">
-                        <button
-                          type="button"
-                          onClick={() => setCalendarFilter("all")}
-                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                            calendarFilter === "all"
-                              ? "bg-white dark:bg-slate-700 text-primary shadow-sm"
-                              : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                          }`}
+                      <div className="flex p-1.5 bg-slate-100 dark:bg-slate-800/60 rounded-2xl">
+                        <div
+                          className="flex-1 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider bg-red-500 text-white shadow-sm text-center"
                         >
-                          Todos ({allForDay.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCalendarFilter("absent")}
-                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                            calendarFilter === "absent"
-                              ? "bg-red-500 text-white shadow-sm"
-                              : "text-slate-500 hover:text-red-500"
-                          }`}
-                        >
-                          Faltas ({absents.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCalendarFilter("present")}
-                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                            calendarFilter === "present"
-                              ? "bg-emerald-500 text-white shadow-sm"
-                              : "text-slate-500 hover:text-emerald-500"
-                          }`}
-                        >
-                          Presença ({presents.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCalendarFilter("late")}
-                          className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all min-w-[70px] ${
-                            calendarFilter === "late"
-                              ? "bg-amber-500 text-white shadow-sm"
-                              : "text-slate-500 hover:text-amber-500"
-                          }`}
-                        >
-                          Atrasos ({lates.length})
-                        </button>
+                          FALTAS ({absents.length}) no dia selecionado
+                        </div>
                       </div>
 
                       {/* List items */}
                       <div className="space-y-3">
-                        {filtered.length === 0 ? (
+                        {absents.length === 0 ? (
                           <div className="text-center py-10 text-slate-400 font-manrope font-bold">
-                            {calendarFilter === "absent" && absents.length === 0 ? (
-                               <div className="space-y-2">
-                                 <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                                 <p className="font-bold text-emerald-500 text-sm">
-                                   Presença Completa! Todos os alunos compareceram neste dia. 🎉
-                                 </p>
-                                 <p className="text-[11px] font-bold text-slate-400">
-                                   Total de presentes: {presents.length} • Atrasos: {lates.length}
-                                 </p>
-                               </div>
-                            ) : (
-                               "Nenhum aluno encontrado com este status."
-                            )}
+                             <div className="space-y-2">
+                               <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                               <p className="font-bold text-emerald-500 text-sm">
+                                 Presença Completa! Todos os alunos compareceram neste dia. 🎉
+                               </p>
+                             </div>
                           </div>
                         ) : (
-                            filtered.map((student) => (
+                            absents.map((student) => (
                               <div
                                 key={student.id}
                                 className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-white/20 dark:bg-slate-900/30 border hover:shadow-md transition-all gap-4 border-l-4 ${
@@ -4314,11 +4256,11 @@ const OccurrenceScreen = ({
       studentsToShow = classes
         .flatMap((c) => c.students)
         .filter((s) => s.name.toLowerCase().includes(searchLower))
-        .sort((a, b) => a.name.localeCompare(b.name));
+        .sort((a, b) => a.name.toUpperCase().localeCompare(b.name.toUpperCase()));
     } else {
       const activeClass = classes.find((c) => c.id === activeClassId);
       studentsToShow = [...(activeClass?.students || [])].sort((a, b) =>
-        a.name.localeCompare(b.name),
+        a.name.toUpperCase().localeCompare(b.name.toUpperCase()),
       );
     }
 
@@ -4326,7 +4268,7 @@ const OccurrenceScreen = ({
     const studentsWithOccurrences = classes
       .flatMap((c) => c.students)
       .filter((s) => occurrences.some((o: any) => o.studentId === s.id))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => a.name.toUpperCase().localeCompare(b.name.toUpperCase()));
 
     return (
       <div className="space-y-6 pb-24">
@@ -6454,7 +6396,7 @@ const ReportsScreen = ({
                   ? (appData.classes || []).flatMap((c) => c.students)
                   : activeClass?.students || []),
               ]
-                .sort((a, b) => a.name.localeCompare(b.name))
+                .sort((a, b) => a.name.toUpperCase().localeCompare(b.name.toUpperCase()))
                 .map((student) => (
                   <div
                     key={student.id}
@@ -7201,7 +7143,7 @@ const ClassesScreen = ({
   const handleEditStudent = () => {
     if (!editingStudentId || !editingStudentName.trim() || !selectedClassId)
       return;
-    const newName = editingStudentName.trim();
+    const newName = editingStudentName.trim().toUpperCase();
     const updatedClasses = (appData.classes || []).map((c) => {
       if (c.id === selectedClassId) {
         return {
@@ -7268,7 +7210,7 @@ const ClassesScreen = ({
       if (c.id === selectedClassId) {
         const newStudents = lines.map((name, i) => ({
           id: Date.now().toString() + i,
-          name: name,
+          name: name.toUpperCase(),
           avatar: "",
           grade: c.name,
           room: "N/A",
@@ -7579,7 +7521,7 @@ const ClassesScreen = ({
 
             <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
               {[...(currentClass.students || [])]
-                .sort((a, b) => a.name.localeCompare(b.name))
+                .sort((a, b) => a.name.toUpperCase().localeCompare(b.name.toUpperCase()))
                 .map((s, index) => (
                   <div
                     key={s.id}
@@ -7913,6 +7855,8 @@ const SettingsScreen = ({
   onNavigateAdmin,
   isAdmin,
   onShowNotification,
+  appUpdateAvailable,
+  acceptAppUpdate,
 }: {
   appData: AppState;
   onUpdateField: (field: string, value: any) => void;
@@ -7924,6 +7868,8 @@ const SettingsScreen = ({
   onNavigateAdmin?: () => void;
   isAdmin?: boolean;
   onShowNotification: (msg: string, type: "info" | "critical") => void;
+  appUpdateAvailable?: boolean;
+  acceptAppUpdate?: (() => void) | null;
 }) => {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [backupSuccess, setBackupSuccess] = useState(false);
@@ -8566,6 +8512,32 @@ const SettingsScreen = ({
               </div>
             )}
           </div>
+          
+          {appUpdateAvailable && acceptAppUpdate && (
+            <div className="pt-4 border-t border-primary/10 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <RefreshCw className="w-4 h-4 text-blue-500 animate-spin" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                    Nova Atualização Pronta
+                  </h4>
+                  <p className="text-[10px] text-slate-500 font-manrope">
+                    Clique para aplicar agora em tempo real.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  acceptAppUpdate();
+                }}
+                className="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors shadow-sm active:scale-95 whitespace-nowrap"
+              >
+                Aplicar Update
+              </button>
+            </div>
+          )}
 
           {!canInstall && (
             <div className="pt-2 border-t border-primary/10">
@@ -9235,11 +9207,38 @@ const AdminScreen = ({
 
           {/* User List */}
           <div className="mt-8 border-t border-slate-100 dark:border-slate-700 pt-6">
-            <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-              <Users className="w-4 h-4 text-primary" />
-              Lista de Usuários no Banco (Online/Offline)
-            </h4>
-            <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                <Users className="w-4 h-4 text-primary" />
+                Equipe e Usuários
+              </h4>
+              <button 
+                onClick={() => {
+                   const email = prompt("E-mail do novo membro:");
+                   const role = prompt("Função (ex: professor, secretario, contador):");
+                   if (email && role) {
+                     // Add simple invite/placeholder doc
+                     import("firebase/firestore").then(({ collection, addDoc }) => {
+                       addDoc(collection(db, "users"), {
+                         email,
+                         role,
+                         schoolName: appData.schoolName,
+                         teacherName: "Novo Membro",
+                         isApprovedManager: false,
+                         createdAt: new Date().toISOString()
+                       }).then(() => {
+                         onShowNotification("Membro convidado/cadastrado!", "info");
+                         setAdminUserList([...adminUserList, { id: Date.now().toString(), email, role, schoolName: appData.schoolName, teacherName: "Novo Membro" }]);
+                       });
+                     }).catch(() => onShowNotification("Erro ou Offline", "critical"));
+                   }
+                }}
+                className="bg-primary/10 text-primary hover:bg-primary/20 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm cursor-pointer border border-primary/20"
+              >
+                + Convidar / Cadastrar Membro
+              </button>
+            </div>
+            <div className="space-y-3 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
               {adminUserList.map((u, i) => (
                 <div
                   key={u.id || i}
@@ -9370,7 +9369,7 @@ const AdminScreen = ({
                      <div className="mt-3 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap gap-1">
                        {cls.students.slice(0, 5).map((s: any) => (
                          <span key={s.id} className="bg-white dark:bg-slate-700 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600">
-                           {s.name.split(" ")[0]}
+                           {s.name.split(" ")[0].toUpperCase()}
                          </span>
                        ))}
                        {cls.students.length > 5 && (
@@ -9751,18 +9750,16 @@ const LoginScreen = ({
   setAccessToken: (token: string | null) => void;
 }) => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [cpf, setCpf] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isEmailLoading, setIsEmailLoading] = useState(false);
 
   const handleEmailLogin = async () => {
     setIsEmailLoading(true);
-    const bareCpf = cpf.replace(/\D/g, "");
-    const email = `${bareCpf}@tarefaflow.local`;
     let dexieUser = null;
     try {
       if (dexieDb.users) {
-        dexieUser = await dexieDb.users.get(bareCpf) || await dexieDb.users.get(cpf);
+        dexieUser = await dexieDb.users.get(loginEmail);
       }
     } catch (e) {
       console.warn("Dexie auth error:", e);
@@ -9770,15 +9767,15 @@ const LoginScreen = ({
 
     try {
       if (navigator.onLine) {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(auth, loginEmail, password);
         onLogin();
       } else {
         // Fallback to offline local auth via Dexie & localStorage
         const local = localStorage.getItem("horizonte_data");
         if (local) {
           const parsed = JSON.parse(local);
-          const expectedCpf = parsed.cpf ? parsed.cpf.replace(/\D/g, "") : "";
-          if (expectedCpf === bareCpf && parsed.password === password) {
+          const expectedEmail = parsed.email || "";
+          if (expectedEmail === loginEmail && parsed.password === password) {
              if (onShowNotification) onShowNotification("Login offline. Sincronização Dexie acionada.", "info");
              onLogin(parsed);
           } else {
@@ -9791,12 +9788,15 @@ const LoginScreen = ({
         }
       }
     } catch (e: any) {
-      if (e.code === "auth/network-request-failed" || !navigator.onLine) {
+      if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential") {
+        if (onShowNotification) onShowNotification("Email não encontrado. Verifique ou cadastre-se.", "critical");
+        else alert("Credenciais inválidas ou e-mail não registrado. Por favor, faça seu cadastro se for novo.");
+      } else if (e.code === "auth/network-request-failed" || !navigator.onLine) {
         const local = localStorage.getItem("horizonte_data");
         if (local) {
           const parsed = JSON.parse(local);
-          const expectedCpf = parsed.cpf ? parsed.cpf.replace(/\D/g, "") : "";
-          if (expectedCpf === bareCpf && parsed.password === password) {
+          const expectedEmail = parsed.email || "";
+          if (expectedEmail === loginEmail && parsed.password === password) {
             if (onShowNotification) onShowNotification("Login offline efetuado via Dexie + localStorage.", "info");
             onLogin(parsed);
           } else {
@@ -9943,12 +9943,11 @@ const LoginScreen = ({
 
             <div className="space-y-3">
               <input
-                type="text"
-                value={cpf}
-                onChange={(e) => setCpf(e.target.value.replace(/\D/g, "").slice(0, 11))}
-                placeholder="Seu CPF (Somente números)"
+                type="email"
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                placeholder="Seu e-mail"
                 className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                maxLength={11}
               />
               <input
                 type="password"
@@ -9959,10 +9958,10 @@ const LoginScreen = ({
               />
               <button
                 onClick={handleEmailLogin}
-                disabled={isEmailLoading || !cpf || !password}
+                disabled={isEmailLoading || !loginEmail || !password}
                 className="w-full primary-gradient text-white font-bold py-3.5 rounded-2xl shadow-lg mt-4 disabled:opacity-50 disabled:active:scale-100 active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center"
               >
-                {isEmailLoading ? "Entrando..." : "Entrar com CPF"}
+                {isEmailLoading ? "Entrando..." : "Entrar"}
               </button>
             </div>
 
@@ -11237,15 +11236,13 @@ export default function App() {
     setIsLogged(true);
     setActiveScreen("studentsHub");
     
-    if (!auth.currentUser && !data.googleSynced && data.cpf && data.password) {
+    if (!auth.currentUser && !data.googleSynced && data.email && data.password) {
       try {
-        const fakeEmail = `${data.cpf.replace(/\D/g, "")}@tarefaflow.local`;
-        await createUserWithEmailAndPassword(auth, fakeEmail, data.password);
+        await createUserWithEmailAndPassword(auth, data.email, data.password);
       } catch (e: any) {
         if (e.code === "auth/email-already-in-use") {
           try {
-            const fakeEmail = `${data.cpf.replace(/\D/g, "")}@tarefaflow.local`;
-            await signInWithEmailAndPassword(auth, fakeEmail, data.password);
+            await signInWithEmailAndPassword(auth, data.email, data.password);
           } catch (signInErr) {
             console.error("Local sign in error:", signInErr);
           }
@@ -11255,6 +11252,7 @@ export default function App() {
       }
     }
     
+    // Fallback: If still no auth (e.g. offline), login would fail, but local Dexie works.
     if (auth.currentUser) {
       syncToFirestore(data);
     }
@@ -11604,6 +11602,8 @@ export default function App() {
             isAdmin={isAdminUser()}
             onNavigateAdmin={() => setActiveScreen("admin")}
             onShowNotification={(msg, type) => triggerNotification(msg, type)}
+            appUpdateAvailable={appUpdateAvailable}
+            acceptAppUpdate={acceptAppUpdate}
           />
         );
       case "admin":
@@ -11816,6 +11816,8 @@ export default function App() {
       <Header
         title={getScreenTitle()}
         avatarUrl={appData?.avatarUrl}
+        appUpdateAvailable={appUpdateAvailable}
+        adminNotices={appData?.adminNotices || []}
         showBack={
           activeScreen === "occurrence" ||
           activeScreen === "settings" ||
@@ -11873,46 +11875,6 @@ export default function App() {
           }
         />
       )}
-
-      {/* App Update Prompt */}
-      <AnimatePresence>
-        {appUpdateAvailable && acceptAppUpdate && (
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 z-[200] max-w-md mx-auto"
-          >
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4">
-              <div className="flex-1">
-                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-1">
-                  <RefreshCw className="w-4 h-4 text-blue-500" /> Nova Atualização!
-                </h4>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  Uma nova versão do sistema está disponível. Atualize para receber as últimas melhorias.
-                </p>
-              </div>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => setAppUpdateAvailable(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors flex-1"
-                >
-                  Depois
-                </button>
-                <button
-                  onClick={() => {
-                    setAppUpdateAvailable(false);
-                    acceptAppUpdate();
-                  }}
-                  className="px-4 py-2 text-xs font-bold text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors flex-1 whitespace-nowrap"
-                >
-                  Atualizar Agora
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Sync Consent Modal */}
       <AnimatePresence>

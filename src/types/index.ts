@@ -1,5 +1,7 @@
 export type Role = "superadmin" | "school_director" | "school_secretary" | "coordinator" | "teacher" | "guardian" | "student" | "both";
 
+export type Permission = "attendance" | "grading" | "occurrences" | "access_control" | "settings";
+
 export interface School {
   id: string;
   name: string;
@@ -24,6 +26,7 @@ export interface SchoolMember {
   photoUrl?: string;
   role: Role;
   status: "pending" | "approved" | "blocked";
+  permissions?: Record<Permission, boolean>;
   createdAt: number;
   approvedAt?: number;
   approvedBy?: string; // userId of who approved

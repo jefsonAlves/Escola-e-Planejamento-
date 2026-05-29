@@ -1142,7 +1142,6 @@ const RegistrationScreen = ({
               
               <button
                 type="button"
-                disabled={!schoolName || !teacherName || !birthDate || !cpf || (role === 'teacher' && !teacherSubject)}
                 onClick={async () => {
                   try {
                     const provider = new GoogleAuthProvider();
@@ -1173,6 +1172,14 @@ const RegistrationScreen = ({
                           if (onShowNotification) onShowNotification("Conta existente encontrada! Login automático.", "info");
                           return;
                         }
+                      }
+
+                      // If not found, validate fields for new registration
+                      if (!schoolName || !teacherName || !birthDate || !cpf || (role === 'teacher' && !teacherSubject)) {
+                        if (onShowNotification) onShowNotification("Para novo cadastro, preencha os dados do formulário antes de continuar com Google.", "critical");
+                        // We sign them out because they need to fill the form first
+                        auth.signOut();
+                        return;
                       }
 
                       onComplete({

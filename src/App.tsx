@@ -11691,8 +11691,22 @@ export default function App() {
               );
               setIsLogged(true);
             } else if (auth.currentUser) {
-              const userRef = doc(db, "users", auth.currentUser.uid);
-              const userSnap = await getDoc(userRef);
+              const uid = auth.currentUser.uid;
+              const email = auth.currentUser.email;
+              
+              // 1. Try UID
+              let userRef = doc(db, "users", uid);
+              let userSnap = await getDoc(userRef);
+              
+              // 2. Try Email if UID fails
+              if (!userSnap.exists() && email) {
+                const q = query(collection(db, "users"), where("email", "==", email));
+                const qSnap = await getDocs(q);
+                if (!qSnap.empty) {
+                  userSnap = qSnap.docs[0];
+                }
+              }
+
               if (userSnap.exists()) {
                 const rawData = userSnap.data() as any;
                 const data = rawData as AppState;

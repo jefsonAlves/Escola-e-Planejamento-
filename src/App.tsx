@@ -655,12 +655,9 @@ const RegistrationScreen = ({
   const [schoolCity, setSchoolCity] = useState("");
   const [schoolState, setSchoolState] = useState("");
   const [teacherName, setTeacherName] = useState("");
-  const [email, setEmail] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [cpf, setCpf] = useState("");
   const [teacherSubject, setTeacherSubject] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
 
   const [classes, setClasses] = useState<ClassData[]>([]);
   const [newClassName, setNewClassName] = useState("");
@@ -736,7 +733,7 @@ const RegistrationScreen = ({
 
   const nextStep = () => {
     if (step === 0 && role) setStep(1);
-    else if (step === 1 && schoolName && teacherName && birthDate && email && password) {
+    else if (step === 1 && schoolName && teacherName && birthDate) {
       if (schoolRegisterMode === "new" && (!schoolCity || !schoolState)) {
         if (onShowNotification)
           onShowNotification(
@@ -751,9 +748,9 @@ const RegistrationScreen = ({
           teacherName,
           role: "school_director", // Keep logic compatible
           birthDate,
-          email,
+          email: "",
           cpf,
-          password,
+          password: "",
           googleSynced: true,
           classes: [],
           occurrences: [],
@@ -1065,18 +1062,6 @@ const RegistrationScreen = ({
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-primary uppercase ml-1">
-                  E-mail
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Seu e-mail"
-                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-primary uppercase ml-1">
                   Seu CPF
                 </label>
                 <input
@@ -1084,18 +1069,6 @@ const RegistrationScreen = ({
                   value={cpf}
                   onChange={(e) => setCpf(e.target.value.replace(/\D/g, "").slice(0,11))}
                   placeholder="Somente números"
-                  className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-primary uppercase ml-1">
-                  Senha
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
                   className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
                 />
               </div>
@@ -1133,98 +1106,12 @@ const RegistrationScreen = ({
               >
                 Avançar
               </button>
-              
-              <div className="flex items-center gap-4 mt-6 mb-2">
-                <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-                <span className="text-xs font-bold text-slate-400 uppercase">Ou</span>
-                <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-              </div>
-              
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const provider = new GoogleAuthProvider();
-                    provider.addScope("email");
-                    provider.addScope("profile");
-                    // Adicionar permissões do classroom caso seja professor/aluno para já sincronizar
-                    provider.addScope("https://www.googleapis.com/auth/classroom.courses.readonly");
-                    provider.addScope("https://www.googleapis.com/auth/classroom.rosters.readonly");
-                    provider.addScope("https://www.googleapis.com/auth/calendar.readonly");
-                    
-                    const result = await signInWithPopup(auth, provider);
-                    if (result.user) {
-                      const credential = GoogleAuthProvider.credentialFromResult(result);
-                      const token = credential?.accessToken;
-                      if (token) {
-                        localStorage.setItem("google_access_token", token);
-                      }
-                      
-                      // Check if user exists before registering
-                      const email = result.user.email;
-                      if (email) {
-                        const { collection, query, where, getDocs } = await import("firebase/firestore");
-                        const q = query(collection(db, "users"), where("email", "==", email));
-                        const qSnap = await getDocs(q);
-                        if (!qSnap.empty) {
-                          const userData = qSnap.docs[0].data() as AppState;
-                          onComplete(userData);
-                          if (onShowNotification) onShowNotification("Conta existente encontrada! Login automático.", "info");
-                          return;
-                        }
-                      }
-
-                      // If not found, validate fields for new registration
-                      if (!schoolName || !teacherName || !birthDate || !cpf || (role === 'teacher' && !teacherSubject)) {
-                        if (onShowNotification) onShowNotification("Para novo cadastro, preencha os dados do formulário antes de continuar com Google.", "critical");
-                        // We sign them out because they need to fill the form first
-                        auth.signOut();
-                        return;
-                      }
-
-                      onComplete({
-                        schoolName,
-                        schoolCity,
-                        schoolState,
-                        teacherName: teacherName || result.user.displayName || "",
-                        teacherSubject,
-                        role,
-                        birthDate,
-                        cpf,
-                        password: "", // Semanticly no password since it's google
-                        googleSynced: true,
-                        googleCalendarSynced: false,
-                        googleClassroomSynced: false,
-                        classes: [],
-                        occurrences: [],
-                        isApprovedManager:
-                          (role === "school_director" || role === "school_secretary") &&
-                          schoolRegisterMode === "new",
-                      });
-                      
-                      if (onShowNotification) onShowNotification("Conta cadastrada com sucesso e vinculada ao Google!", "info");
-                    }
-                  } catch (e: any) {
-                    console.error("Erro Google popup", e);
-                    if (onShowNotification) onShowNotification("Falha ao integrar com o Google: " + e.message, "critical");
-                  }
-                }}
-                className="w-full bg-white flex disabled:opacity-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold py-3.5 rounded-2xl shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95 transition-all text-sm items-center justify-center gap-3"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z" fill="#FBBC05"/>
-                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                </svg>
-                Cadastrar com Gmail
-              </button>
 
               <button
                 onClick={onSwitchToLogin}
                 className="w-full mt-4 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors"
               >
-                Voltar para o Login
+                Cancelar (Sair)
               </button>
             </div>
           )}
@@ -1412,9 +1299,9 @@ const RegistrationScreen = ({
                     teacherName,
                     role,
                     birthDate,
-                    email,
+                    email: "",
                     cpf,
-                    password,
+                    password: "",
                     googleSynced: true,
                     classes,
                     occurrences: [],
@@ -2893,10 +2780,10 @@ const AttendanceScreen = ({
             if (sAtts.length === 0) return s;
             
             let sModified = false;
-            const newHistory: Record<string, "none"|"present"|"absent"|"late"> = { ...s.attendanceHistory };
+            const newHistory: Record<string, "none" | "present" | "absent" | "late" | "justified" | "justified_absence"> = { ...s.attendanceHistory };
             
             sAtts.forEach(a => {
-              const status: "none"|"present"|"absent"|"late" = (a.status === "justified" ? "absent" : a.status) as any;
+              const status = (a.status === "justified" ? "absent" : a.status) as any;
               if (status && status !== "none" && newHistory[a.date] !== status) {
                 newHistory[a.date] = status;
                 sModified = true;
@@ -3538,7 +3425,7 @@ const AttendanceScreen = ({
                               ...(s.attendanceHistory || {}),
                               [attendanceDate]: "present",
                             },
-                          };
+                          } as Student;
                         }),
                       }
                     : c
@@ -4013,15 +3900,17 @@ const AttendanceScreen = ({
                              </div>
                           </div>
                         ) : (
-                            absents.map((student) => (
+                            absents.map((student) => {
+                              const currentStatus = student.attendanceHistory?.[selectedCalendarDate] || "none";
+                              return (
                               <div
                                 key={student.id}
                                 className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl bg-white/20 dark:bg-slate-900/30 border hover:shadow-md transition-all gap-4 border-l-4 ${
-                                  student.currentStatus === "absent"
+                                  currentStatus === "absent"
                                     ? "border-l-red-500 border-slate-200/50 dark:border-slate-800/80"
-                                    : student.currentStatus === "late"
+                                    : currentStatus === "late"
                                       ? "border-l-amber-500 border-slate-200/50 dark:border-slate-800/80"
-                                      : student.currentStatus === "present"
+                                      : currentStatus === "present"
                                         ? "border-l-emerald-500 border-slate-200/50 dark:border-slate-800/80"
                                         : "border-l-slate-300 border-slate-200/50 dark:border-slate-800/80"
                                 }`}
@@ -4047,21 +3936,21 @@ const AttendanceScreen = ({
                                     <div className="flex items-center gap-2 mt-0.5">
                                       <span
                                         className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded ${
-                                          student.currentStatus === "absent"
+                                          currentStatus === "absent"
                                             ? "bg-red-50 text-red-500 dark:bg-red-500/15"
-                                            : student.currentStatus === "late"
+                                            : currentStatus === "late"
                                               ? "bg-amber-50 text-amber-600 dark:bg-amber-500/15"
-                                              : student.currentStatus ===
+                                              : currentStatus ===
                                                   "present"
                                                 ? "bg-emerald-50 text-emerald-500 dark:bg-emerald-500/15"
                                                 : "bg-slate-100 text-slate-400 dark:bg-slate-800"
                                         }`}
                                       >
-                                        {student.currentStatus === "absent"
+                                        {currentStatus === "absent"
                                           ? "Falta"
-                                          : student.currentStatus === "late"
+                                          : currentStatus === "late"
                                             ? "Atraso"
-                                            : student.currentStatus ===
+                                            : currentStatus ===
                                                 "present"
                                               ? "Presente"
                                               : "Sem Chamada"}
@@ -4089,7 +3978,7 @@ const AttendanceScreen = ({
                                       )
                                     }
                                     className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
-                                      student.currentStatus === "present"
+                                      currentStatus === "present"
                                         ? "bg-emerald-500/15 border-transparent text-emerald-600"
                                         : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
                                     }`}
@@ -4107,7 +3996,7 @@ const AttendanceScreen = ({
                                       )
                                     }
                                     className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
-                                      student.currentStatus === "absent"
+                                      currentStatus === "absent"
                                         ? "bg-red-500/15 border-transparent text-red-600"
                                         : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
                                     }`}
@@ -4125,7 +4014,7 @@ const AttendanceScreen = ({
                                       )
                                     }
                                     className={`text-[10px] font-bold px-2.5 py-1.5 rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
-                                      student.currentStatus === "late"
+                                      currentStatus === "late"
                                         ? "bg-amber-500/15 border-transparent text-amber-600"
                                         : "bg-transparent hover:bg-slate-100 border-slate-250 text-slate-500 dark:text-slate-450"
                                     }`}
@@ -4134,7 +4023,8 @@ const AttendanceScreen = ({
                                   </button>
                                 </div>
                               </div>
-                            ))
+                            )}
+                            )
                           )}
                         </div>
                       </div>
@@ -9778,80 +9668,18 @@ const LoginScreen = ({
   setAccessToken,
 }: {
   appData: AppState | null;
-  onLogin: (fetchedData?: AppState) => void;
+  onLogin: (fetchedData?: AppState, intent?: "login"|"register") => void;
   onSwitchToRegister: () => void;
   onWipeData?: () => void;
   onShowNotification?: (msg: string, type: "critical" | "info") => void;
   setAccessToken: (token: string | null) => void;
 }) => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [loginEmail, setLoginEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [loadingIntent, setLoadingIntent] = useState<"login"|"register"|null>(null);
 
-  const handleEmailLogin = async () => {
-    setIsEmailLoading(true);
-    let dexieUser = null;
-    try {
-      if (dexieDb.users) {
-        dexieUser = await dexieDb.users.get(loginEmail);
-      }
-    } catch (e) {
-      console.warn("Dexie auth error:", e);
-    }
-
-    try {
-      if (navigator.onLine) {
-        await signInWithEmailAndPassword(auth, loginEmail, password);
-        onLogin();
-      } else {
-        // Fallback to offline local auth via Dexie & localStorage
-        const local = localStorage.getItem("horizonte_data");
-        if (local) {
-          const parsed = JSON.parse(local);
-          const expectedEmail = parsed.email || "";
-          if (expectedEmail === loginEmail && parsed.password === password) {
-             if (onShowNotification) onShowNotification("Login offline. Sincronização Dexie acionada.", "info");
-             onLogin(parsed);
-          } else {
-             alert("Credenciais offline inválidas.");
-          }
-        } else if (dexieUser) {
-           alert("Usuário encontrado localmente via Dexie, mas dados de acesso offline estão indisponíveis.");
-        } else {
-           alert("Nenhum dado offline localizado e Dexie vazio.");
-        }
-      }
-    } catch (e: any) {
-      if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential") {
-        if (onShowNotification) onShowNotification("Email não encontrado. Verifique ou cadastre-se.", "critical");
-        else alert("Credenciais inválidas ou e-mail não registrado. Por favor, faça seu cadastro se for novo.");
-      } else if (e.code === "auth/network-request-failed" || !navigator.onLine) {
-        const local = localStorage.getItem("horizonte_data");
-        if (local) {
-          const parsed = JSON.parse(local);
-          const expectedEmail = parsed.email || "";
-          if (expectedEmail === loginEmail && parsed.password === password) {
-            if (onShowNotification) onShowNotification("Login offline efetuado via Dexie + localStorage.", "info");
-            onLogin(parsed);
-          } else {
-            alert("Credenciais offline inválidas.");
-          }
-        } else if (dexieUser) {
-           alert("Usuário validado via Dexie, porém dados corrompidos. Requer Internet para restaurar.");
-        } else {
-           alert("Nenhum dado offline localizado para este usuário.");
-        }
-      } else {
-        console.error("Auth error:", e);
-        alert("Erro no login. Verifique as credenciais.");
-      }
-    }
-    setIsEmailLoading(false);
-  };
-
-  const handleGoogleLogin = async () => {
+  const handleGoogleLogin = async (intent: "login"|"register") => {
     setIsGoogleLoading(true);
+    setLoadingIntent(intent);
     try {
       if (Capacitor.isNativePlatform()) {
         const clientId =
@@ -9903,7 +9731,7 @@ const LoginScreen = ({
           );
         }
         if (result.user) {
-          onLogin();
+          onLogin(undefined, intent);
         }
       } catch (error: any) {
         if (error.code === "auth/internal-error") {
@@ -9942,6 +9770,7 @@ const LoginScreen = ({
         console.error("Auth error:", e);
       }
       setIsGoogleLoading(false);
+      setLoadingIntent(null);
     }
   };
 
@@ -9973,86 +9802,87 @@ const LoginScreen = ({
             </div>
 
             <p className="text-xs text-slate-400 font-manrope px-2">
-              Acesse com seus dados locais ou Gmail
+              Acesse usando sua conta Google
             </p>
 
-            <div className="space-y-3">
-              <input
-                type="email"
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="Seu e-mail"
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-              />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Sua senha"
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-              />
+            <div className="space-y-3 w-full">
               <button
-                onClick={handleEmailLogin}
-                disabled={isEmailLoading || !loginEmail || !password}
-                className="w-full primary-gradient text-white font-bold py-3.5 rounded-2xl shadow-lg mt-4 disabled:opacity-50 disabled:active:scale-100 active:scale-95 transition-all text-sm uppercase tracking-widest flex items-center justify-center"
+                onClick={() => handleGoogleLogin("login")}
+                disabled={isGoogleLoading}
+                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold py-4 rounded-2xl shadow-sm hover:shadow-md transition-all text-slate-700 dark:text-slate-200 flex items-center justify-center gap-3 active:scale-95 text-sm uppercase tracking-widest"
               >
-                {isEmailLoading ? "Entrando..." : "Entrar"}
+                {isGoogleLoading && loadingIntent === "login" ? (
+                  <RefreshCw className="w-5 h-5 animate-spin text-slate-400" />
+                ) : (
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      fill="#4285F4"
+                    />
+                    <path
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z"
+                      fill="#34A853"
+                    />
+                    <path
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z"
+                      fill="#FBBC05"
+                    />
+                    <path
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      fill="#EA4335"
+                    />
+                  </svg>
+                )}
+                Acessar Conta
+              </button>
+
+              <button
+                onClick={() => handleGoogleLogin("register")}
+                disabled={isGoogleLoading}
+                className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 font-bold py-4 rounded-2xl shadow-sm hover:shadow-md transition-all text-slate-600 dark:text-slate-300 flex items-center justify-center gap-3 active:scale-95 text-sm uppercase tracking-widest"
+              >
+                {isGoogleLoading && loadingIntent === "register" ? (
+                  <RefreshCw className="w-5 h-5 animate-spin text-slate-400" />
+                ) : (
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                      fill="#4285F4"
+                    />
+                    <path
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z"
+                      fill="#34A853"
+                    />
+                    <path
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z"
+                      fill="#FBBC05"
+                    />
+                    <path
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                      fill="#EA4335"
+                    />
+                  </svg>
+                )}
+                Criar Nova Conta
               </button>
             </div>
-
-            <div className="flex items-center gap-4 py-2">
-              <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-              <span className="text-xs font-bold text-slate-400 uppercase">Ou</span>
-              <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700"></div>
-            </div>
-
-            <button
-              onClick={handleGoogleLogin}
-              disabled={isGoogleLoading}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold py-4 rounded-2xl shadow-sm hover:shadow-md transition-all text-slate-700 dark:text-slate-200 flex items-center justify-center gap-3 active:scale-95 text-sm uppercase tracking-widest"
-            >
-              {isGoogleLoading ? (
-                <RefreshCw className="w-5 h-5 animate-spin text-slate-400" />
-              ) : (
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    fill="#4285F4"
-                  />
-                  <path
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.16v2.84C3.99 20.53 7.7 23 12 23z"
-                    fill="#34A853"
-                  />
-                  <path
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.16C1.43 8.55 1 10.22 1 12s.43 3.45 1.16 4.93l3.68-2.84z"
-                    fill="#FBBC05"
-                  />
-                  <path
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.16 7.07l3.68 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                    fill="#EA4335"
-                  />
-                </svg>
-              )}
-              Acessar com Google
-            </button>
 
             <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center justify-center gap-2">
               <ShieldCheck className="w-4 h-4 text-green-500" />
               Acesso Exclusivo via Gmail
             </div>
-            
-            <button
-              onClick={onSwitchToRegister}
-              className="w-full mt-2 text-sm font-bold text-slate-500 dark:text-slate-400 hover:text-primary transition-colors"
-            >
-              Ainda não tem conta? <span className="text-primary underline">Cadastre-se</span>
-            </button>
           </div>
         </div>
       </motion.div>
@@ -10247,7 +10077,7 @@ export default function App() {
               );
               const newHistory: Record<
                 string,
-                "present" | "absent" | "late" | "none"
+                "none" | "present" | "absent" | "late" | "justified" | "justified_absence"
               > = { ...(student.attendanceHistory || {}) };
               let modified = false;
 
@@ -11271,23 +11101,6 @@ export default function App() {
     setIsLogged(true);
     setActiveScreen("studentsHub");
     
-    if (!auth.currentUser && !data.googleSynced && data.email && data.password) {
-      try {
-        await createUserWithEmailAndPassword(auth, data.email, data.password);
-      } catch (e: any) {
-        if (e.code === "auth/email-already-in-use") {
-          try {
-            await signInWithEmailAndPassword(auth, data.email, data.password);
-          } catch (signInErr) {
-            console.error("Local sign in error:", signInErr);
-          }
-        } else {
-          console.error("Auth error:", e);
-        }
-      }
-    }
-    
-    // Fallback: If still no auth (e.g. offline), login would fail, but local Dexie works.
     if (auth.currentUser) {
       syncToFirestore(data);
     }
@@ -11415,16 +11228,21 @@ export default function App() {
                     syncStatus: 'pending',
                     createdAt: Date.now(),
                     date,
-                    status,
+                    status: (status === "none" ? "absent" : status) as any,
                     updatedAt: Date.now()
                  });
                  dexieDb.syncQueue.put({
                     id: crypto.randomUUID(),
-                    operation: 'update_attendance',
+                    operation: 'UPDATE',
+                    collection: 'attendance',
+                    localId: `${classId}-${studentId}-${date}`,
                     payload: { classId, studentId, date, status },
-                    timestamp: Date.now()
+                    createdAt: Date.now(),
+                    retryCount: 0
                  });
-              } catch(e) {}
+              } catch(e) {
+                 console.error("Dexie update_attendance failed", e);
+              }
             }}
           />
         );
@@ -11692,76 +11510,77 @@ export default function App() {
   };
 
   if (!isLogged) {
-    if (authMode === "register") {
-      return (
-        <RegistrationScreen
-          onComplete={handleRegistrationComplete}
-          onSwitchToLogin={() => setAuthMode("login")}
-          onShowNotification={triggerNotification}
-        />
-      );
-    } else {
-      return (
-        <LoginScreen
-          appData={appData}
-          setAccessToken={setAccessToken}
-          onLogin={async (fetchedData) => {
-            if (fetchedData) {
-              setAppData(fetchedData);
-              localStorage.setItem(
-                "horizonte_data",
-                JSON.stringify(fetchedData),
-              );
-              setIsLogged(true);
-            } else if (auth.currentUser) {
-              const uid = auth.currentUser.uid;
-              const email = auth.currentUser.email;
-              
-              // 1. Try UID
-              let userRef = doc(db, "users", uid);
-              let userSnap = await getDoc(userRef);
-              
-              // 2. Try Email if UID fails
-              if (!userSnap.exists() && email) {
-                const q = query(collection(db, "users"), where("email", "==", email));
-                const qSnap = await getDocs(q);
-                if (!qSnap.empty) {
-                  userSnap = qSnap.docs[0];
-                }
+    return (
+      <LoginScreen
+        appData={appData}
+        setAccessToken={setAccessToken}
+        onLogin={async (fetchedData, intent) => {
+          if (fetchedData) {
+            setAppData(fetchedData);
+            localStorage.setItem(
+              "horizonte_data",
+              JSON.stringify(fetchedData),
+            );
+            setIsLogged(true);
+          } else if (auth.currentUser) {
+            const uid = auth.currentUser.uid;
+            const email = auth.currentUser.email;
+            
+            // 1. Try UID
+            let userRef = doc(db, "users", uid);
+            let userSnap = await getDoc(userRef);
+            
+            // 2. Try Email if UID fails
+            if (!userSnap.exists() && email) {
+              const q = query(collection(db, "users"), where("email", "==", email));
+              const qSnap = await getDocs(q);
+              if (!qSnap.empty) {
+                userSnap = qSnap.docs[0];
               }
-
-              if (userSnap.exists()) {
-                const rawData = userSnap.data() as any;
-                const data = rawData as AppState;
-                data.classes = rawData.classesStr ? JSON.parse(rawData.classesStr) : [];
-                data.occurrences = rawData.occurrencesStr ? JSON.parse(rawData.occurrencesStr) : [];
-                data.googleCalendarEvents = rawData.googleCalendarEventsStr ? JSON.parse(rawData.googleCalendarEventsStr) : [];
-                data.googleClassroomActivities = rawData.googleClassroomActivitiesStr ? JSON.parse(rawData.googleClassroomActivitiesStr) : [];
-                setAppData(data);
-                localStorage.setItem("horizonte_data", JSON.stringify(data));
-                setIsLogged(true);
-              } else {
-                setAuthMode("register");
-              }
-            } else {
-              setIsLogged(true);
             }
-          }}
-          onSwitchToRegister={() => setAuthMode("register")}
-          onShowNotification={triggerNotification}
-          onWipeData={() => {
-            localStorage.removeItem("horizonte_data");
-            localStorage.removeItem("google_access_token");
-            setAppData(null);
-            auth.signOut();
-            dexieDb.delete().then(() => {
-              setAuthMode("register");
-              window.location.reload();
-            });
-          }}
-        />
-      );
-    }
+
+            if (userSnap.exists()) {
+              if (intent === "register") {
+                 triggerNotification("Conta já existente! Redirecionando para login...", "info");
+              }
+              const rawData = userSnap.data() as any;
+              const data = rawData as AppState;
+              data.classes = rawData.classesStr ? JSON.parse(rawData.classesStr) : [];
+              data.occurrences = rawData.occurrencesStr ? JSON.parse(rawData.occurrencesStr) : [];
+              data.googleCalendarEvents = rawData.googleCalendarEventsStr ? JSON.parse(rawData.googleCalendarEventsStr) : [];
+              data.googleClassroomActivities = rawData.googleClassroomActivitiesStr ? JSON.parse(rawData.googleClassroomActivitiesStr) : [];
+              setAppData(data);
+              localStorage.setItem("horizonte_data", JSON.stringify(data));
+              setIsLogged(true);
+            } else {
+              if (intent === "login") {
+                 triggerNotification("Conta não encontrada. Por favor, crie uma nova conta.", "critical");
+                 auth.signOut();
+              } else {
+                 setIsLogged(true); // Triggers registration flow since !appData
+              }
+            }
+          } else {
+            if (intent === "login") {
+               triggerNotification("Falha no login.", "critical");
+            } else {
+               setIsLogged(true);
+            }
+          }
+        }}
+        onSwitchToRegister={() => {}}
+        onShowNotification={triggerNotification}
+        onWipeData={() => {
+          localStorage.removeItem("horizonte_data");
+          localStorage.removeItem("google_access_token");
+          setAppData(null);
+          auth.signOut();
+          dexieDb.delete().then(() => {
+            window.location.reload();
+          });
+        }}
+      />
+    );
   }
 
   if (isLogged && !appData && profileLoaded) {

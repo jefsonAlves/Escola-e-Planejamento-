@@ -661,6 +661,9 @@ const RegistrationScreen = ({
 
   const [classes, setClasses] = useState<ClassData[]>([]);
   const [newClassName, setNewClassName] = useState("");
+  const [newClassDays, setNewClassDays] = useState<string[]>([]);
+  const [newClassStart, setNewClassStart] = useState("");
+  const [newClassEnd, setNewClassEnd] = useState("");
 
   const [activeClassId, setActiveClassId] = useState<string | null>(null);
   const [newStudentName, setNewStudentName] = useState("");
@@ -766,9 +769,21 @@ const RegistrationScreen = ({
     if (!newClassName.trim()) return;
     setClasses([
       ...classes,
-      { id: Date.now().toString(), name: newClassName, students: [] },
+      { 
+        id: Date.now().toString(), 
+        name: newClassName, 
+        students: [],
+        schedule: {
+          days: newClassDays,
+          startTime: newClassStart,
+          endTime: newClassEnd
+        }
+      },
     ]);
     setNewClassName("");
+    setNewClassDays([]);
+    setNewClassStart("");
+    setNewClassEnd("");
   };
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1118,26 +1133,76 @@ const RegistrationScreen = ({
 
           {step === 2 && (
             <div className="space-y-6 text-left">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-primary uppercase ml-1">
-                  Nova Turma
-                </label>
-                <div className="flex gap-2">
+              <div className="space-y-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-700/50">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-primary uppercase ml-1">
+                    Nome da Turma
+                  </label>
                   <input
                     type="text"
                     value={newClassName}
                     onChange={(e) => setNewClassName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && addClass()}
                     placeholder="Ex: 3º Ano B"
-                    className="flex-1 bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                    className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
                   />
-                  <button
-                    onClick={addClass}
-                    className="bg-primary text-white p-3 rounded-xl hover:bg-primary/90 transition-colors"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
                 </div>
+                
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-primary uppercase ml-1">
+                    Dias de Aula (Opcional)
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {["Seg", "Ter", "Qua", "Qui", "Sex"].map(day => (
+                      <button
+                        key={day}
+                        onClick={() => setNewClassDays(prev => 
+                          prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]
+                        )}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                          newClassDays.includes(day) 
+                            ? "bg-primary text-white border-primary" 
+                            : "bg-white dark:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-600 hover:border-primary/50"
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                      Início da Aula
+                    </label>
+                    <input
+                      type="time"
+                      value={newClassStart}
+                      onChange={(e) => setNewClassStart(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors text-sm"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase ml-1">
+                      Fim da Aula
+                    </label>
+                    <input
+                      type="time"
+                      value={newClassEnd}
+                      onChange={(e) => setNewClassEnd(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors text-sm"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={addClass}
+                  disabled={!newClassName.trim()}
+                  className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white py-3 rounded-xl transition-colors font-bold flex items-center justify-center gap-2 active:scale-95"
+                >
+                  <Plus className="w-5 h-5" />
+                  Adicionar Turma
+                </button>
               </div>
 
               {classes.length > 0 && (
@@ -1153,11 +1218,29 @@ const RegistrationScreen = ({
                       value={c}
                       className="flex justify-between items-center p-3 rounded-xl border border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800 cursor-grab active:cursor-grabbing"
                     >
-                      <div className="flex gap-3 items-center">
-                        <GripVertical className="w-5 h-5 text-slate-300" />
-                        <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope">
-                          {c.name}
-                        </span>
+                      <div className="flex flex-col gap-1 w-full relative">
+                        <div className="flex justify-between items-center w-full pr-8">
+                          <div className="flex items-center gap-2">
+                             <GripVertical className="w-4 h-4 text-slate-300 shrink-0" />
+                             <span className="font-bold text-slate-700 dark:text-slate-200 font-manrope">
+                               {c.name}
+                             </span>
+                          </div>
+                        </div>
+                        {c.schedule && (c.schedule.days.length > 0 || c.schedule.startTime || c.schedule.endTime) && (
+                           <div className="flex items-center gap-2 text-[10px] ml-6 text-slate-500">
+                             {c.schedule.days.length > 0 && <span>{c.schedule.days.join(", ")}</span>}
+                             {(c.schedule.startTime || c.schedule.endTime) && (
+                               <span> ({c.schedule.startTime || "--:--"} às {c.schedule.endTime || "--:--"})</span>
+                             )}
+                           </div>
+                        )}
+                        <button 
+                          onClick={() => setClasses(classes.filter(cls => cls.id !== c.id))}
+                          className="absolute right-0 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-red-500 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                        </button>
                       </div>
                     </Reorder.Item>
                   ))}
@@ -11532,14 +11615,18 @@ export default function App() {
             
             // 2. Try Email if UID fails
             if (!userSnap.exists() && email) {
-              const q = query(collection(db, "users"), where("email", "==", email));
-              const qSnap = await getDocs(q);
-              if (!qSnap.empty) {
-                userSnap = qSnap.docs[0];
+              try {
+                const q = query(collection(db, "users"), where("email", "==", email));
+                const qSnap = await getDocs(q);
+                if (!qSnap.empty) {
+                  userSnap = qSnap.docs[0];
+                }
+              } catch(e) {
+                console.error("Querying email failed in LoginScreen", e);
               }
             }
 
-            if (userSnap.exists()) {
+            if (userSnap && userSnap.exists()) {
               if (intent === "register") {
                  triggerNotification("Conta já existente! Redirecionando para login...", "info");
               }
@@ -11553,7 +11640,22 @@ export default function App() {
               localStorage.setItem("horizonte_data", JSON.stringify(data));
               setIsLogged(true);
             } else {
-              if (intent === "login") {
+              let localData = null;
+              const local = localStorage.getItem("horizonte_data");
+              if (local) {
+                  const parsed = JSON.parse(local);
+                  if (parsed.email === email || parsed.email === "") {
+                      localData = parsed;
+                      localData.email = email;
+                  }
+              }
+
+              if (localData) {
+                  triggerNotification("Restaurando dados locais...", "info");
+                  setAppData(localData);
+                  localStorage.setItem("horizonte_data", JSON.stringify(localData));
+                  setIsLogged(true);
+              } else if (intent === "login") {
                  triggerNotification("Conta não encontrada. Por favor, crie uma nova conta.", "critical");
                  auth.signOut();
               } else {

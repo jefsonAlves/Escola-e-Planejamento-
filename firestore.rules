@@ -38,11 +38,13 @@ service cloud.firestore {
 
     match /schools/{schoolId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin() || isSchoolAdmin(schoolId);
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() || isSchoolAdmin(schoolId);
 
       match /members/{userId} {
         allow read: if isSignedIn();
-        allow write: if request.auth.uid == userId || isSchoolAdmin(schoolId);
+        allow create: if isSignedIn();
+        allow update, delete: if request.auth.uid == userId || isSchoolAdmin(schoolId);
       }
 
       match /classes/{classId} {

@@ -14,8 +14,6 @@ import {
 } from "firebase/firestore";
 import firebaseConfig from "../../firebase-applet-config.json";
 
-import firebaseJson from "../../firebase.json";
-
 console.log("Firebase config loaded:", firebaseConfig);
 
 const config = firebaseConfig as any;

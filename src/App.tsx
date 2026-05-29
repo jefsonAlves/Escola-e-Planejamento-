@@ -11607,7 +11607,7 @@ export default function App() {
             setIsLogged(true);
           } else if (auth.currentUser) {
             const uid = auth.currentUser.uid;
-            const email = auth.currentUser.email;
+            const email = auth.currentUser.email || "";
             
             // 1. Try UID
             let userRef = doc(db, "users", uid);
@@ -11628,7 +11628,9 @@ export default function App() {
 
             if (userSnap && userSnap.exists()) {
               if (intent === "register") {
-                 triggerNotification("Conta já existente! Redirecionando para login...", "info");
+                 triggerNotification("Conta já encontrada! Redirecionando para as suas turmas...", "info");
+              } else {
+                 triggerNotification("Login bem sucedido. Bem-vindo de volta!", "info");
               }
               const rawData = userSnap.data() as any;
               const data = rawData as AppState;
@@ -11651,20 +11653,21 @@ export default function App() {
               }
 
               if (localData) {
-                  triggerNotification("Restaurando dados locais...", "info");
+                  triggerNotification("Conta não encontrada no servidor online. Restaurando dados locais offline...", "info");
                   setAppData(localData);
                   localStorage.setItem("horizonte_data", JSON.stringify(localData));
                   setIsLogged(true);
               } else if (intent === "login") {
-                 triggerNotification("Conta não encontrada. Por favor, crie uma nova conta.", "critical");
-                 auth.signOut();
+                 triggerNotification("Conta não encontrada (sem dados na nuvem ou neste aparelho). Faremos o seu cadastro agora.", "info");
+                 setIsLogged(true); // Treat as register fallback
               } else {
+                 triggerNotification("Vamos configurar a sua nova conta.", "info");
                  setIsLogged(true); // Triggers registration flow since !appData
               }
             }
           } else {
             if (intent === "login") {
-               triggerNotification("Falha no login.", "critical");
+               triggerNotification("Falha no login com Google.", "critical");
             } else {
                setIsLogged(true);
             }

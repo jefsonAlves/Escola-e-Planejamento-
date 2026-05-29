@@ -1840,18 +1840,8 @@ const QuickGradeDialog = ({
     if (!silent) onShowNotification(`${updatedCount} nota(s) atualizada(s) com sucesso!`);
   };
 
-  const triggerAutosave = () => {
-    setIsSaving(true);
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      handleApplyGrades(true);
-      setIsSaving(false);
-    }, 1500);
-  };
-
   const handlePointChange = (studentId: string, val: string) => {
     setPointsMap(prev => ({ ...prev, [studentId]: val }));
-    triggerAutosave();
   };
 
   const handleClose = async () => {
@@ -1991,7 +1981,7 @@ const QuickGradeDialog = ({
 
           <div className="p-5 border-t border-slate-100 dark:border-slate-800">
             <button
-              onClick={handleApplyGrades}
+              onClick={() => handleApplyGrades(false)}
               className="w-full primary-gradient text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-all text-sm uppercase tracking-widest"
             >
               Lançar Notas
@@ -3503,6 +3493,47 @@ const AttendanceScreen = ({
             </div>
           </div>
 
+          <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700/50">
+            <span className="text-xs font-bold text-slate-500 uppercase ml-1">Ações Rápidas</span>
+            <button
+              onClick={() => {
+                if (!onUpdateClasses || !activeClassId) return;
+                const updatedClasses = (classes || []).map((c) =>
+                  c.id === activeClassId
+                    ? {
+                        ...c,
+                        students: (c.students || []).map((s) => {
+                          try {
+                            dexieDb.attendance.put({
+                              localId: `${activeClassId}-${s.id}-${attendanceDate}`,
+                              classId: activeClassId,
+                              studentId: s.id,
+                              date: attendanceDate,
+                              status: "present",
+                              updatedAt: Date.now()
+                            });
+                          } catch(e) {}
+                          
+                          return {
+                            ...s,
+                            status: "present",
+                            attendanceHistory: {
+                              ...(s.attendanceHistory || {}),
+                              [attendanceDate]: "present",
+                            },
+                          };
+                        }),
+                      }
+                    : c
+                );
+                onUpdateClasses(updatedClasses);
+              }}
+              className="text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all active:scale-95 shadow-sm shadow-emerald-500/20"
+            >
+              <Check className="w-4 h-4" /> Todos Presentes
+            </button>
+          </div>
+
           <div className="space-y-3">
             {filteredStudents.length === 0 ? (
               <div className="text-center py-12 text-slate-400 font-manrope">
@@ -3629,7 +3660,8 @@ const AttendanceScreen = ({
                     </div>
 
                     <div className="flex gap-1.5 items-center shrink-0">
-                      <button
+                      <motion.button
+                        whileTap={{ scale: 0.85 }}
                         title="Marcar Presença"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -3647,9 +3679,10 @@ const AttendanceScreen = ({
                         }`}
                       >
                         <Check className="w-4 h-4" />
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileTap={{ scale: 0.85 }}
                         title="Marcar Falta"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -3667,9 +3700,10 @@ const AttendanceScreen = ({
                         }`}
                       >
                         <X className="w-4 h-4" />
-                      </button>
+                      </motion.button>
 
-                      <button
+                      <motion.button
+                        whileTap={{ scale: 0.85 }}
                         title="Marcar Atraso"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -3687,7 +3721,7 @@ const AttendanceScreen = ({
                         }`}
                       >
                         <Clock className="w-4 h-4" />
-                      </button>
+                      </motion.button>
                     </div>
                   </motion.div>
                 );
@@ -4972,9 +5006,31 @@ const AgendaScreen = ({
     if (!selectedDayInfo) return null;
     const { dateStr, dayObj } = selectedDayInfo;
 
+    const dayNameIndex = dayObj.getDay();
+    const daysArr = [
+      "Domingo",
+      "Segunda",
+      "Terça",
+      "Quarta",
+      "Quinta",
+      "Sexta",
+      "Sábado",
+    ];
+    const dayName = daysArr[dayNameIndex];
+    const generalDays = Array.isArray(appData.teachingDays) ? appData.teachingDays : (typeof appData.teachingDays === 'string' ? JSON.parse(appData.teachingDays) : []);
+
     // Get absent students per class
     const absents = (appData.classes || [])
       .map((c) => {
+        const classSpecificDays = c.schedule?.days || [];
+        const isClassDay = classSpecificDays.length > 0 
+          ? classSpecificDays.includes(dayName)
+          : (generalDays.length > 0 ? generalDays.includes(dayName) : true);
+
+        if (!isClassDay) {
+          return { class: c, missing: [] };
+        }
+
         const missing = c.students.filter(
           (s) =>
             s.attendanceHistory && s.attendanceHistory[dateStr] === "absent",
@@ -5253,9 +5309,30 @@ const AgendaScreen = ({
               d,
             );
 
+            const dayObj = new Date(currentDate.getFullYear(), currentDate.getMonth(), d);
+            const dayNameIndex = dayObj.getDay();
+            const daysArr = [
+              "Domingo",
+              "Segunda",
+              "Terça",
+              "Quarta",
+              "Quinta",
+              "Sexta",
+              "Sábado",
+            ];
+            const dayName = daysArr[dayNameIndex];
+            const generalDays = Array.isArray(appData.teachingDays) ? appData.teachingDays : (typeof appData.teachingDays === 'string' ? JSON.parse(appData.teachingDays) : []);
+
             // Compute missing counts for this day
             const absentsPerClass = (appData.classes || [])
               .map((c) => {
+                const classSpecificDays = c.schedule?.days || [];
+                const isClassDay = classSpecificDays.length > 0 
+                  ? classSpecificDays.includes(dayName)
+                  : (generalDays.length > 0 ? generalDays.includes(dayName) : true);
+
+                if (!isClassDay) return null;
+
                 const count = c.students.filter(
                   (s) =>
                     s.attendanceHistory &&
@@ -11268,28 +11345,49 @@ export default function App() {
             }}
             onUpdateClasses={(updated) => updateAppData(prev => ({ ...prev, classes: updated }))}
             onUpdateStatus={(classId, studentId, date, status) => {
-              updateAppData((prev) => ({
-                ...prev,
-                classes: prev.classes.map((c) =>
-                  c.id === classId
-                    ? {
-                        ...c,
-                        students: c.students.map((s) =>
-                          s.id === studentId
-                            ? {
-                                ...s,
-                                status,
-                                attendanceHistory: {
-                                  ...(s.attendanceHistory || {}),
-                                  [date]: status,
-                                },
-                              }
-                            : s,
-                        ),
-                      }
-                    : c,
-                ),
-              }));
+              updateAppData((prev) => {
+                const newData = {
+                  ...prev,
+                  classes: prev.classes.map((c) =>
+                    c.id === classId
+                      ? {
+                          ...c,
+                          students: c.students.map((s) =>
+                            s.id === studentId
+                              ? {
+                                  ...s,
+                                  status,
+                                  attendanceHistory: {
+                                    ...(s.attendanceHistory || {}),
+                                    [date]: status,
+                                  },
+                                }
+                              : s,
+                          ),
+                        }
+                      : c,
+                  ),
+                };
+                return newData;
+              });
+
+              // Log to Dexie for true offline backup
+              try {
+                 dexieDb.attendance.put({
+                    localId: `${classId}-${studentId}-${date}`,
+                    classId,
+                    studentId,
+                    date,
+                    status,
+                    updatedAt: Date.now()
+                 });
+                 dexieDb.syncQueue.put({
+                    id: crypto.randomUUID(),
+                    operation: 'update_attendance',
+                    payload: { classId, studentId, date, status },
+                    timestamp: Date.now()
+                 });
+              } catch(e) {}
             }}
           />
         );

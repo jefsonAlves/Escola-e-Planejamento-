@@ -5,6 +5,11 @@
       "description": "Represents a user (teacher, student, or both) in the system.",
       "type": "object",
       "properties": {
+        "name": { "type": "string", "description": "The user's display name." },
+        "email": { "type": "string", "description": "The user's email address." },
+        "phone": { "type": "string", "description": "The user's phone number." },
+        "globalRole": { "type": "string", "description": "The user's global role (student/teacher)." },
+        "selectedSchoolId": { "type": "string", "description": "The ID of the currently selected school." },
         "schoolName": { "type": "string", "description": "The name of the school the user belongs to." },
         "teacherName": { "type": "string", "description": "The name of the teacher/user." },
         "birthDate": { "type": "string", "description": "The user's birth date." },
@@ -19,7 +24,7 @@
         "googleClassroomActivitiesStr": { "type": "string", "description": "JSON stringified list of Google Classroom activities." },
         "updatedAt": { "type": "string", "format": "date-time", "description": "The timestamp of the last update." }
       },
-      "required": ["schoolName", "teacherName", "updatedAt"]
+      "required": ["updatedAt"]
     },
     "School": {
       "title": "School",

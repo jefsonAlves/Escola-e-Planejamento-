@@ -5,76 +5,45 @@ service cloud.firestore {
     // Helper functions
     function isSignedIn() { return request.auth != null; }
     function isAdmin() { return isSignedIn() && request.auth.token.email in ['jefson.ti@gmail.com', 'jefson.s.a7@gmail.com']; }
-    function getUserRole() { 
-      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
-      return userDoc != null ? userDoc.data.globalRole : 'student'; 
-    }
-    function getSchoolMemberRole(schoolId) {
-      let memberDoc = get(/databases/$(database)/documents/schools/$(schoolId)/members/$(request.auth.uid));
-      return memberDoc != null ? memberDoc.data.role : null;
-    }
-    function isSchoolAdmin(schoolId) {
-      let r = getSchoolMemberRole(schoolId);
-      return r in ['school_director', 'school_secretary', 'coordinator', 'superadmin'] || isAdmin();
-    }
-    function isTeacher(schoolId) {
-      let r = getSchoolMemberRole(schoolId);
-      return r in ['teacher', 'both'];
-    }
-    function isGuardian(schoolId) {
-      let r = getSchoolMemberRole(schoolId);
-      return r == 'guardian';
-    }
 
     match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin() || request.auth.uid != null); // Anyone can read basic profiles to show name/avatar
-      allow write: if isSignedIn() && request.auth.uid == userId; 
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
     }
 
     match /schoolInvites/{inviteId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isAdmin() || request.auth.uid != null); // In real app, only secretary. Keeping wide for POC
+      allow read, write: if isSignedIn();
     }
 
     match /schools/{schoolId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin() || isSchoolAdmin(schoolId);
+      allow read, write: if isSignedIn();
 
       match /members/{userId} {
-        allow read: if isSignedIn();
-        allow create: if isSignedIn();
-        allow update, delete: if request.auth.uid == userId || isSchoolAdmin(schoolId);
+        allow read, write: if isSignedIn();
       }
 
       match /classes/{classId} {
-        allow read: if isSignedIn();
-        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+        allow read, write: if isSignedIn();
       }
 
       match /students/{studentId} {
-        allow read: if isSignedIn(); 
-        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+        allow read, write: if isSignedIn();
       }
 
       match /attendance/{attendanceId} {
-        allow read: if isSignedIn();
-        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+        allow read, write: if isSignedIn();
       }
 
       match /grades/{gradeId} {
-        allow read: if isSignedIn();
-        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+        allow read, write: if isSignedIn();
       }
 
       match /occurrences/{occurrenceId} {
-        allow read: if isSignedIn();
-        allow write: if isSchoolAdmin(schoolId) || isTeacher(schoolId);
+        allow read, write: if isSignedIn();
       }
 
       match /guardianStudentLinks/{linkId} {
-        allow read: if isSignedIn();
-        allow write: if isSchoolAdmin(schoolId) || isGuardian(schoolId);
+        allow read, write: if isSignedIn();
       }
 
       match /notifications/{notifId} {
@@ -86,9 +55,12 @@ service cloud.firestore {
       }
     }
 
-    // Keep legacy rules for backwards compatibility
     match /school_links/{linkId} {
       allow read, write: if isSignedIn();
+    }
+    
+    match /{document=**} {
+      allow read, write: if isSignedIn() && isAdmin();
     }
   }
 }

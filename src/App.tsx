@@ -10790,7 +10790,7 @@ export default function App() {
         ),
         updatedAt: serverTimestamp(),
       };
-      await setDoc(doc(db, "users", auth.currentUser.uid), payload);
+      await setDoc(doc(db, "users", auth.currentUser.uid), payload, { merge: true });
 
       if (data.schoolName && data.schoolName.trim()) {
         const schoolTrimmed = data.schoolName.trim();
@@ -11393,14 +11393,9 @@ export default function App() {
                 JSON.parse(data.googleClassroomActivitiesStr) || [];
           } catch (e) {}
           const remoteApp: AppState = {
-            schoolName: data.schoolName,
-            teacherName: data.teacherName,
-            birthDate: data.birthDate,
-            cpf: data.cpf,
-            password: data.password,
-            googleSynced: data.googleSynced,
-            avatarUrl: data.avatarUrl,
-            role: data.role,
+            ...data,
+            schoolName: data.schoolName || "",
+            teacherName: data.teacherName || "",
             classes: parsedClasses,
             occurrences: parsedOccurrences,
             googleCalendarEvents: parsedEvents,

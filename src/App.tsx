@@ -664,6 +664,7 @@ const RegistrationScreen = ({
   const [newClassDays, setNewClassDays] = useState<string[]>([]);
   const [newClassStart, setNewClassStart] = useState("");
   const [newClassEnd, setNewClassEnd] = useState("");
+  const [isCustomClass, setIsCustomClass] = useState(false);
 
   const [activeClassId, setActiveClassId] = useState<string | null>(null);
   const [newStudentName, setNewStudentName] = useState("");
@@ -1211,20 +1212,46 @@ const RegistrationScreen = ({
                     Nome da Turma
                   </label>
                   <div className="relative">
-                    <input
-                      type="text"
-                      list="registration-classes-list"
-                      value={newClassName}
-                      onChange={(e) => setNewClassName(e.target.value)}
-                      placeholder="Ex: 3º Ano B"
-                      className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                    />
-                    {availableClassesInSchool.length > 0 && (
-                      <datalist id="registration-classes-list">
-                        {availableClassesInSchool.map((c, i) => (
-                          <option key={i} value={c.name} />
-                        ))}
-                      </datalist>
+                    {availableClassesInSchool.length > 0 && !isCustomClass ? (
+                      <div className="space-y-2">
+                        <select
+                          value={newClassName}
+                          onChange={(e) => {
+                            if (e.target.value === "custom") {
+                              setIsCustomClass(true);
+                              setNewClassName("");
+                            } else {
+                              setNewClassName(e.target.value);
+                            }
+                          }}
+                          className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors appearance-none"
+                        >
+                          <option value="" disabled>Selecione uma turma existente...</option>
+                          {availableClassesInSchool.map((c, i) => (
+                            <option key={i} value={c.name}>{c.name}</option>
+                          ))}
+                          <option value="custom" className="font-bold text-primary">+ Nova turma (não listada)</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={newClassName}
+                          onChange={(e) => setNewClassName(e.target.value)}
+                          placeholder="Ex: 3º Ano B"
+                          className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                        />
+                        {availableClassesInSchool.length > 0 && (
+                          <button 
+                            type="button"
+                            onClick={() => { setIsCustomClass(false); setNewClassName(""); }}
+                            className="text-xs text-primary font-bold hover:underline"
+                          >
+                            Ver turmas existentes do colégio
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -7078,6 +7105,7 @@ const ClassesScreen = ({
 }) => {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [newClassName, setNewClassName] = useState("");
+  const [isCustomClass, setIsCustomClass] = useState(false);
   const [newStudentText, setNewStudentText] = useState("");
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [editingClassName, setEditingClassName] = useState("");
@@ -7522,31 +7550,54 @@ const ClassesScreen = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Classes List */}
         <div className="space-y-4">
-          <div className="glass-card p-5 rounded-2xl flex gap-2">
-            <div className="flex-1 relative">
-              <input
-                type="text"
-                list="classes-school-list"
-                value={newClassName}
-                onChange={(e) => setNewClassName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddClass()}
-                placeholder="Nome da Nova Turma..."
-                className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium outline-none transition-colors"
-              />
-              {schoolClasses.length > 0 && (
-                <datalist id="classes-school-list">
+          <div className="glass-card p-5 rounded-2xl flex flex-col gap-2">
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                {schoolClasses.length > 0 && !isCustomClass ? (
+                  <select
+                    value={newClassName}
+                    onChange={(e) => {
+                      if (e.target.value === "custom") {
+                        setIsCustomClass(true);
+                        setNewClassName("");
+                      } else {
+                        setNewClassName(e.target.value);
+                      }
+                    }}
+                    className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium outline-none transition-colors appearance-none"
+                  >
+                    <option value="" disabled>Selecionar turma disponível...</option>
                     {schoolClasses.map((sc) => (
-                      <option key={sc.id} value={sc.name} />
+                      <option key={sc.id} value={sc.name}>{sc.name} ({sc.studentsCount} alunos)</option>
                     ))}
-                </datalist>
-              )}
+                    <option value="custom" className="font-bold text-primary">+ Nova turma (não listada)</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={newClassName}
+                    onChange={(e) => setNewClassName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddClass()}
+                    placeholder="Nome da Nova Turma..."
+                    className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium outline-none transition-colors"
+                  />
+                )}
+              </div>
+              <button
+                onClick={handleAddClass}
+                className="bg-primary text-white p-3 rounded-xl hover:bg-primary/90 transition-colors shrink-0"
+              >
+                <Plus className="w-5 h-5" />
+              </button>
             </div>
-            <button
-              onClick={handleAddClass}
-              className="bg-primary text-white p-3 rounded-xl hover:bg-primary/90 transition-colors shrink-0"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
+            {schoolClasses.length > 0 && isCustomClass && (
+              <button
+                onClick={() => { setIsCustomClass(false); setNewClassName(""); }}
+                className="text-xs text-primary font-bold hover:underline text-left"
+              >
+                Ver turmas existentes do colégio
+              </button>
+            )}
           </div>
 
           <div className="space-y-2">

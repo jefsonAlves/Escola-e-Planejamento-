@@ -10031,6 +10031,83 @@ function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+function mergeUserProfiles(local: AppState, remote: AppState): AppState {
+  const mergedClasses = [...(local.classes || [])];
+  
+  (remote.classes || []).forEach((rClass) => {
+    const lClassIndex = mergedClasses.findIndex(
+      (c) =>
+        c.id === rClass.id ||
+        c.name.toLowerCase().trim() === rClass.name.toLowerCase().trim()
+    );
+    if (lClassIndex === -1) {
+      mergedClasses.push(rClass);
+    } else {
+      const lClass = mergedClasses[lClassIndex];
+      const mergedStudents = [...(lClass.students || [])];
+      
+      (rClass.students || []).forEach((rStudent) => {
+        const lStudentIndex = mergedStudents.findIndex(
+          (s) =>
+            s.id === rStudent.id ||
+            s.name.toUpperCase().trim() === rStudent.name.toUpperCase().trim()
+        );
+        if (lStudentIndex === -1) {
+          mergedStudents.push(rStudent);
+        } else {
+          const lStudent = mergedStudents[lStudentIndex];
+          const mergedAttendance = {
+            ...(rStudent.attendanceHistory || {}),
+            ...(lStudent.attendanceHistory || {}),
+          };
+          
+          const mergedEvaluations = [...(rStudent.evaluations || [])];
+          (lStudent.evaluations || []).forEach((lEval) => {
+            if (
+              !mergedEvaluations.some(
+                (re) =>
+                  re.id === lEval.id ||
+                  (re.method === lEval.method && re.date === lEval.date)
+              )
+            ) {
+              mergedEvaluations.push(lEval);
+            }
+          });
+          
+          mergedStudents[lStudentIndex] = {
+            ...rStudent,
+            ...lStudent,
+            attendanceHistory: mergedAttendance,
+            evaluations: mergedEvaluations,
+          };
+        }
+      });
+      
+      mergedClasses[lClassIndex] = {
+        ...rClass,
+        ...lClass,
+        students: mergedStudents,
+      };
+    }
+  });
+
+  const mergedOccurrences = [...(local.occurrences || [])];
+  (remote.occurrences || []).forEach((rOcc) => {
+    if (!mergedOccurrences.some((o) => o.id === rOcc.id)) {
+      mergedOccurrences.push(rOcc);
+    }
+  });
+
+  return {
+    ...remote,
+    ...local,
+    classes: mergedClasses,
+    occurrences: mergedOccurrences,
+    cpf: local.cpf || remote.cpf,
+    email: local.email || remote.email,
+  };
+}
+
 export default function App() {
   const [activeScreen, setActiveScreen] = useState<Screen>("studentsHub");
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -11179,13 +11256,57 @@ export default function App() {
   }, []);
 
   const handleRegistrationComplete = async (data: AppState) => {
-    setAppData(data);
-    localStorage.setItem("horizonte_data", JSON.stringify(data));
-    setIsLogged(true);
-    setActiveScreen("studentsHub");
-    
+    if (auth.currentUser?.email) {
+      data.email = auth.currentUser.email;
+    }
+
+    // Check if there is an existing Firestore profile with this CPF or Email
     if (auth.currentUser) {
-      syncToFirestore(data);
+      const uid = auth.currentUser.uid;
+      const email = auth.currentUser.email || "";
+      const cpfRaw = (data.cpf || "").replace(/\D/g, "");
+      const cpfFormatted = formatCPF(cpfRaw);
+      
+      let remoteData: AppState | null = null;
+      try {
+        let qSnap = await getDocs(query(collection(db, "users"), where("email", "==", email)));
+        if (qSnap.empty && cpfRaw) {
+          qSnap = await getDocs(query(collection(db, "users"), where("cpf", "in", [cpfRaw, cpfFormatted])));
+        }
+        
+        if (!qSnap.empty) {
+          const docSnap = qSnap.docs[0];
+          const rawRemote = docSnap.data() as any;
+          const parsedRemote = rawRemote as AppState;
+          parsedRemote.classes = rawRemote.classesStr ? JSON.parse(rawRemote.classesStr) : [];
+          parsedRemote.occurrences = rawRemote.occurrencesStr ? JSON.parse(rawRemote.occurrencesStr) : [];
+          parsedRemote.googleCalendarEvents = rawRemote.googleCalendarEventsStr ? JSON.parse(rawRemote.googleCalendarEventsStr) : [];
+          parsedRemote.googleClassroomActivities = rawRemote.googleClassroomActivitiesStr ? JSON.parse(rawRemote.googleClassroomActivitiesStr) : [];
+          
+          remoteData = parsedRemote;
+        }
+      } catch (e) {
+        console.warn("Failed to rescue existing profiles during registration completion", e);
+      }
+      
+      let finalData = data;
+      if (remoteData) {
+        // Merge so we don't lose existing classes, evaluations, occurrences or attendance
+        finalData = mergeUserProfiles(data, remoteData);
+        triggerNotification("Dados anteriores de CPF/E-mail resgatados e unificados com sucesso!", "info");
+      }
+      
+      setAppData(finalData);
+      localStorage.setItem("horizonte_data", JSON.stringify(finalData));
+      setIsLogged(true);
+      setActiveScreen("studentsHub");
+      
+      await syncToFirestore(finalData);
+    } else {
+      setAppData(data);
+      localStorage.setItem("horizonte_data", JSON.stringify(data));
+      setIsLogged(true);
+      setActiveScreen("studentsHub");
     }
   };
 
@@ -11626,6 +11747,33 @@ export default function App() {
               }
             }
 
+            // 3. Try CPF if UID and Email fail
+            if (!userSnap.exists()) {
+              const local = localStorage.getItem("horizonte_data");
+              let localCpf = "";
+              if (local) {
+                try {
+                  const parsed = JSON.parse(local);
+                  if (parsed.cpf) {
+                    localCpf = parsed.cpf;
+                  }
+                } catch(e) {}
+              }
+              if (localCpf) {
+                const rawCpf = localCpf.replace(/\D/g, "");
+                const formattedCpf = formatCPF(rawCpf);
+                try {
+                  const qCpf = query(collection(db, "users"), where("cpf", "in", [rawCpf, formattedCpf]));
+                  const qSnap = await getDocs(qCpf);
+                  if (!qSnap.empty) {
+                    userSnap = qSnap.docs[0];
+                  }
+                } catch(e) {
+                  console.error("Querying CPF failed in LoginScreen", e);
+                }
+              }
+            }
+
             if (userSnap && userSnap.exists()) {
               if (intent === "register") {
                  triggerNotification("Conta já encontrada! Redirecionando para as suas turmas...", "info");
@@ -11638,17 +11786,47 @@ export default function App() {
               data.occurrences = rawData.occurrencesStr ? JSON.parse(rawData.occurrencesStr) : [];
               data.googleCalendarEvents = rawData.googleCalendarEventsStr ? JSON.parse(rawData.googleCalendarEventsStr) : [];
               data.googleClassroomActivities = rawData.googleClassroomActivitiesStr ? JSON.parse(rawData.googleClassroomActivitiesStr) : [];
-              setAppData(data);
-              localStorage.setItem("horizonte_data", JSON.stringify(data));
+              
+              // Merge with local storage if available so we never lose unsynced local changes
+              const saved = localStorage.getItem("horizonte_data");
+              let finalData = data;
+              if (saved) {
+                try {
+                  const localObj = JSON.parse(saved) as AppState;
+                  const localCpfNormalized = (localObj.cpf || "").replace(/\D/g, "");
+                  const remoteCpfNormalized = (data.cpf || "").replace(/\D/g, "");
+                  if (
+                    localCpfNormalized === remoteCpfNormalized || 
+                    localObj.email === data.email || 
+                    (!localObj.cpf && !localObj.email)
+                  ) {
+                    finalData = mergeUserProfiles(localObj, data);
+                  }
+                } catch(e) {
+                  console.error("Error merging with local data:", e);
+                }
+              }
+
+              if (email && !finalData.email) finalData.email = email;
+
+              setAppData(finalData);
+              localStorage.setItem("horizonte_data", JSON.stringify(finalData));
               setIsLogged(true);
+
+              // Sync immediately to current UID document to link it securely on the server!
+              try {
+                await syncToFirestore(finalData);
+              } catch(syncErr) {
+                console.error("Syncing merged profile to UID doc failed:", syncErr);
+              }
             } else {
               let localData = null;
               const local = localStorage.getItem("horizonte_data");
               if (local) {
                   const parsed = JSON.parse(local);
-                  if (parsed.email === email || parsed.email === "") {
+                  if (parsed.email === email || parsed.email === "" || !parsed.email || parsed.cpf) {
                       localData = parsed;
-                      localData.email = email;
+                      if (email) localData.email = email;
                   }
               }
 
@@ -11657,6 +11835,13 @@ export default function App() {
                   setAppData(localData);
                   localStorage.setItem("horizonte_data", JSON.stringify(localData));
                   setIsLogged(true);
+
+                  // Sync immediately to current UID document to link it securely on the server!
+                  try {
+                    await syncToFirestore(localData);
+                  } catch(syncErr) {
+                    console.error("Syncing local profile to UID doc failed:", syncErr);
+                  }
               } else if (intent === "login") {
                  triggerNotification("Conta não encontrada (sem dados na nuvem ou neste aparelho). Faremos o seu cadastro agora.", "info");
                  setIsLogged(true); // Treat as register fallback

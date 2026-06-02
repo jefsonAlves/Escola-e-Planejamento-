@@ -675,6 +675,49 @@ const RegistrationScreen = ({
     [],
   );
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
+  const [availableClassesInSchool, setAvailableClassesInSchool] = useState<ClassData[]>([]);
+
+  useEffect(() => {
+    if (step === 2 && schoolName) {
+      const fetchAvailableClasses = async () => {
+        try {
+          const qSnap = await getDocs(
+            query(collection(db, "users"), where("schoolName", "==", schoolName))
+          );
+          const classMap = new Map<string, ClassData>();
+          qSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.classesStr) {
+              try {
+                const parsed = JSON.parse(data.classesStr);
+                if (Array.isArray(parsed)) {
+                  parsed.forEach((c: ClassData) => {
+                    const key = c.name.trim().toUpperCase();
+                    if (!classMap.has(key)) {
+                      classMap.set(key, c);
+                    } else {
+                      const existing = classMap.get(key)!;
+                      const mergedStudents = [...existing.students];
+                      (c.students || []).forEach(newStu => {
+                        if (!mergedStudents.some(s => s.name.toUpperCase().trim() === newStu.name.toUpperCase().trim())) {
+                          mergedStudents.push(newStu);
+                        }
+                      });
+                      existing.students = mergedStudents;
+                    }
+                  });
+                }
+              } catch(e) {}
+            }
+          });
+          setAvailableClassesInSchool(Array.from(classMap.values()));
+        } catch(e) {
+          console.warn("Error fetching available classes in school during registration:", e);
+        }
+      };
+      fetchAvailableClasses();
+    }
+  }, [step, schoolName]);
 
   useEffect(() => {
     const fetchSchools = async () => {
@@ -767,19 +810,36 @@ const RegistrationScreen = ({
 
   const addClass = () => {
     if (!newClassName.trim()) return;
-    setClasses([
-      ...classes,
-      { 
+
+    // Check if class already exists in the school to reuse its students
+    const existingClass = availableClassesInSchool.find(c => c.name.toLowerCase().trim() === newClassName.trim().toLowerCase());
+
+    const newClassData: ClassData = { 
         id: Date.now().toString(), 
-        name: newClassName, 
-        students: [],
+        name: existingClass ? existingClass.name : newClassName, 
+        students: existingClass ? existingClass.students.map(s => ({
+            ...s,
+            id: Math.random().toString(36).substring(2, 9),
+            attendanceHistory: {},
+            evaluations: [],
+            status: "none" as const
+        })) : [],
         schedule: {
           days: newClassDays,
           startTime: newClassStart,
           endTime: newClassEnd
         }
-      },
+      };
+
+    setClasses([
+      ...classes,
+      newClassData
     ]);
+
+    if (existingClass && onShowNotification) {
+      onShowNotification(`Turma "${existingClass.name}" já existente localizada! Alunos importados automaticamente.`, "info");
+    }
+
     setNewClassName("");
     setNewClassDays([]);
     setNewClassStart("");
@@ -1138,13 +1198,23 @@ const RegistrationScreen = ({
                   <label className="text-xs font-bold text-primary uppercase ml-1">
                     Nome da Turma
                   </label>
-                  <input
-                    type="text"
-                    value={newClassName}
-                    onChange={(e) => setNewClassName(e.target.value)}
-                    placeholder="Ex: 3º Ano B"
-                    className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="registration-classes-list"
+                      value={newClassName}
+                      onChange={(e) => setNewClassName(e.target.value)}
+                      placeholder="Ex: 3º Ano B"
+                      className="w-full bg-white dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium text-slate-700 dark:text-slate-200 outline-none transition-colors"
+                    />
+                    {availableClassesInSchool.length > 0 && (
+                      <datalist id="registration-classes-list">
+                        {availableClassesInSchool.map((c, i) => (
+                          <option key={i} value={c.name} />
+                        ))}
+                      </datalist>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="space-y-1">
@@ -6988,9 +7058,11 @@ const ReportsScreen = ({
 const ClassesScreen = ({
   appData,
   onUpdateClasses,
+  onShowNotification
 }: {
   appData: AppState;
   onUpdateClasses: (classes: ClassData[]) => void;
+  onShowNotification?: (msg: string, type: "info" | "critical") => void;
 }) => {
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [newClassName, setNewClassName] = useState("");
@@ -7024,15 +7096,17 @@ const ClassesScreen = ({
 
   const currentClass = appData.classes?.find((c) => c.id === selectedClassId);
 
-  const fetchSchoolClasses = async () => {
+  const fetchSchoolClasses = async (silent = false) => {
     if (!appData.schoolName) {
-      setImportNotice(
+      if (!silent) setImportNotice(
         "Adicione o nome da sua escola em Configurações para buscar turmas de outros professores.",
       );
       return;
     }
-    setIsImporting(true);
-    setImportNotice("");
+    if (!silent) {
+      setIsImporting(true);
+      setImportNotice("");
+    }
     try {
       const q = query(
         collection(db, "users"),
@@ -7059,13 +7133,19 @@ const ClassesScreen = ({
         }
       });
       setSchoolClasses(fetchedClasses);
-      if (fetchedClasses.length === 0)
+      if (fetchedClasses.length === 0 && !silent)
         setImportNotice("Nenhuma turma encontrada nesta instituição.");
     } catch (error) {
-      handleFirestoreError(error, OperationType.LIST, "users");
+      if (!silent) handleFirestoreError(error, OperationType.LIST, "users");
     }
-    setIsImporting(false);
+    if (!silent) setIsImporting(false);
   };
+
+  useEffect(() => {
+    if (appData.schoolName) {
+      fetchSchoolClasses(true);
+    }
+  }, [appData.schoolName]);
 
   const handleImportClasses = (selectedIds: string[]) => {
     let newClasses = [...(appData.classes || [])];
@@ -7189,9 +7269,25 @@ const ClassesScreen = ({
 
   const handleAddClass = () => {
     if (!newClassName.trim()) return;
+
+    // Check if class already exists in the same school among other teachers
+    const existingSchoolClass = schoolClasses.find(sc => sc.name.toLowerCase().trim() === newClassName.trim().toLowerCase());
+    
+    // Check if we don't already have it
+    if ((appData.classes || []).some(c => c.name.toLowerCase() === newClassName.trim().toLowerCase())) {
+        // they already have this class, just proceed as normal or notify
+    } else if (existingSchoolClass) {
+        handleRequestLinkWithStudents(existingSchoolClass.id);
+        setNewClassName("");
+        if (onShowNotification) {
+          onShowNotification(`Turma "${existingSchoolClass.name}" já existente localizada! Alunos importados automaticamente.`, "info");
+        }
+        return;
+    }
+
     const newClass: ClassData = {
       id: Date.now().toString(),
-      name: newClassName,
+      name: newClassName.trim(),
       students: [],
     };
     onUpdateClasses([...(appData.classes || []), newClass]);
@@ -7403,14 +7499,24 @@ const ClassesScreen = ({
         {/* Classes List */}
         <div className="space-y-4">
           <div className="glass-card p-5 rounded-2xl flex gap-2">
-            <input
-              type="text"
-              value={newClassName}
-              onChange={(e) => setNewClassName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddClass()}
-              placeholder="Nome da Nova Turma..."
-              className="flex-1 bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium outline-none transition-colors"
-            />
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                list="classes-school-list"
+                value={newClassName}
+                onChange={(e) => setNewClassName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddClass()}
+                placeholder="Nome da Nova Turma..."
+                className="w-full bg-slate-50 dark:bg-slate-800/50 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary px-4 py-3 rounded-t-lg font-medium outline-none transition-colors"
+              />
+              {schoolClasses.length > 0 && (
+                <datalist id="classes-school-list">
+                    {schoolClasses.map((sc) => (
+                      <option key={sc.id} value={sc.name} />
+                    ))}
+                </datalist>
+              )}
+            </div>
             <button
               onClick={handleAddClass}
               className="bg-primary text-white p-3 rounded-xl hover:bg-primary/90 transition-colors shrink-0"
@@ -11616,6 +11722,7 @@ export default function App() {
             onUpdateClasses={(newClasses) =>
               updateAppData((prev) => ({ ...prev, classes: newClasses }))
             }
+            onShowNotification={(msg, type) => triggerNotification(msg, type)}
           />
         );
       case "materials":

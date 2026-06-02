@@ -71,14 +71,26 @@ export default defineConfig(({mode}) => {
               if (id.includes('firebase')) {
                 return 'vendor-firebase';
               }
-              if (id.includes('react') || id.includes('react-dom')) {
+              if (id.includes('react/') || id.includes('react-dom/')) {
                 return 'vendor-react';
               }
               if (id.includes('lucide-react')) {
                 return 'vendor-lucide';
               }
-              if (id.includes('framer-motion') || id.includes('motion')) {
+              if (id.includes('framer-motion') || id.includes('motion') || id.includes('popmotion')) {
                 return 'vendor-motion';
+              }
+              if (id.includes('recharts') || id.includes('d3')) {
+                return 'vendor-charts';
+              }
+              if (id.includes('@capacitor')) {
+                return 'vendor-capacitor';
+              }
+              if (id.includes('dexie')) {
+                return 'vendor-dexie';
+              }
+              if (id.includes('@google')) {
+                return 'vendor-google';
               }
               return 'vendor';
             }

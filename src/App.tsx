@@ -8876,6 +8876,40 @@ const AdminScreen = ({
   const [newWebhookName, setNewWebhookName] = useState("");
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
   const [newWebhookEvent, setNewWebhookEvent] = useState("all");
+  const [testingWebhookId, setTestingWebhookId] = useState<string | null>(null);
+  const [webhookTestResult, setWebhookTestResult] = useState<{id: string, status: number | null, success: boolean, message: string} | null>(null);
+
+  const testWebhook = async (webhookUrl: string, id: string) => {
+    setTestingWebhookId(id);
+    setWebhookTestResult(null);
+    try {
+      const payload = {
+        event: "test_event",
+        timestamp: new Date().toISOString(),
+        data: { message: "Webhook via Painel de Controle" }
+      };
+      const res = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      setWebhookTestResult({
+        id,
+        status: res.status,
+        success: res.ok,
+        message: res.ok ? `Sucesso (HTTP ${res.status})` : `Erro HTTP ${res.status}`
+      });
+    } catch (e: any) {
+      setWebhookTestResult({
+        id,
+        status: null,
+        success: false,
+        message: "Falha na conexão (CORS/URL incorreta)"
+      });
+    } finally {
+      setTestingWebhookId(null);
+    }
+  };
 
   useEffect(() => {
     const fetchCount = async () => {
@@ -9305,7 +9339,7 @@ const AdminScreen = ({
       )}
 
       <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
-        {(isSuperAdmin ? (["access", "classes", "billing", "notices", "api_keys"] as const) : (["access", "classes"] as const)).map((tab) => (
+        {(isSuperAdmin || isGestorEscolar ? (["access", "classes", "billing", "notices", "api_keys"] as const) : (["access", "classes"] as const)).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab as any)}
@@ -9791,19 +9825,40 @@ const AdminScreen = ({
                       {k.name}
                     </h4>
 
-                    <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-2 pr-1 mb-3">
-                      <code className="text-[10px] text-slate-500 dark:text-slate-400 font-mono flex-1 overflow-x-auto no-scrollbar pl-2">
-                        {k.key}
-                      </code>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(k.key);
-                          onShowNotification("Chave copiada!", "info");
-                        }}
-                        className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
+                    <div className="space-y-2 mb-3">
+                      <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-2 pr-1">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest pl-2 min-w-[60px]">CHAVE:</span>
+                        <code className="text-[10px] text-slate-600 dark:text-slate-300 font-mono flex-1 overflow-x-auto no-scrollbar">
+                          {k.key}
+                        </code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(k.key);
+                            onShowNotification("Chave copiada!", "info");
+                          }}
+                          className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors shrink-0"
+                          title="Copiar Chave"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl p-2 pr-1">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest pl-2 min-w-[60px]">ENDPOINT:</span>
+                        <code className="text-[10px] text-slate-600 dark:text-slate-300 font-mono flex-1 overflow-x-auto no-scrollbar">
+                          {window.location.origin}/api/v1/sync
+                        </code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(`${window.location.origin}/api/v1/sync`);
+                            onShowNotification("Endpoint copiado!", "info");
+                          }}
+                          className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-colors shrink-0"
+                          title="Copiar Endpoint"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex justify-between items-center">
@@ -9893,14 +9948,24 @@ const AdminScreen = ({
                     <code className="block text-[9px] text-slate-500 dark:text-slate-400 font-mono mb-3 truncate px-2 py-1.5 bg-slate-50 dark:bg-slate-900 rounded-lg">
                       {w.url}
                     </code>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {new Date(w.createdAt).toLocaleDateString("pt-BR")}
-                      </span>
+                    <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => testWebhook(w.url, w.id)}
+                          disabled={testingWebhookId === w.id}
+                          className="px-3 py-1.5 text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors font-bold disabled:opacity-50"
+                        >
+                          {testingWebhookId === w.id ? "TESTANDO..." : "TESTAR WEBHOOK"}
+                        </button>
+                        {webhookTestResult?.id === w.id && (
+                          <span className={`text-[10px] font-bold ${webhookTestResult.success ? 'text-green-500' : 'text-red-500'}`}>
+                            {webhookTestResult.message}
+                          </span>
+                        )}
+                      </div>
                       <button
                         onClick={() => removeWebhook(w.id)}
-                        className="px-3 py-1 text-[10px] bg-red-50 text-red-600 rounded-lg opacity-100 transition-all font-bold hover:bg-red-100"
+                        className="px-3 py-1.5 text-[10px] bg-red-50 text-red-600 rounded-lg opacity-100 transition-all font-bold hover:bg-red-100"
                       >
                         REMOVER
                       </button>
@@ -11854,6 +11919,8 @@ export default function App() {
                 updateAppData((prev) => ({ ...prev, [field]: value }))
               }
               onShowNotification={triggerNotification}
+              isSuperAdmin={isRootUser()}
+              isGestorEscolar={!!appData?.isApprovedManager}
             />
           );
         } else if (

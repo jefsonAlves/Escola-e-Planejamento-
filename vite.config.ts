@@ -18,9 +18,9 @@ export default defineConfig(({mode}) => {
           globIgnores: ["**/node_modules/**/*", "sw.js", "workbox-*.js"]
         },
         manifest: {
-          name: 'Colégio Horizonte',
-          short_name: 'Horizonte',
-          description: 'Gestão Escolar Horizonte',
+          name: 'Colégio em Movimento',
+          short_name: 'Movimento',
+          description: 'Gestão Escolar Colégio em Movimento',
           theme_color: '#00236f',
           background_color: '#ffffff',
           display: 'standalone',

@@ -693,12 +693,24 @@ const RegistrationScreen = ({
                 if (Array.isArray(parsed)) {
                   parsed.forEach((c: ClassData) => {
                     const key = c.name.trim().toUpperCase();
+                    
+                    // Create safe stripped students
+                    const safeStudents = (c.students || []).map(stu => ({
+                      ...stu,
+                      id: stu.id || Math.random().toString(36).substring(2, 9),
+                      evaluations: [],
+                      attendanceHistory: {},
+                      status: "none" as const
+                    }));
+                    
+                    const safeClass = { ...c, students: safeStudents };
+                    
                     if (!classMap.has(key)) {
-                      classMap.set(key, c);
+                      classMap.set(key, safeClass);
                     } else {
                       const existing = classMap.get(key)!;
                       const mergedStudents = [...existing.students];
-                      (c.students || []).forEach(newStu => {
+                      safeStudents.forEach(newStu => {
                         if (!mergedStudents.some(s => s.name.toUpperCase().trim() === newStu.name.toUpperCase().trim())) {
                           mergedStudents.push(newStu);
                         }
@@ -7121,12 +7133,24 @@ const ClassesScreen = ({
           try {
             const parsedClasses = JSON.parse(data.classesStr);
             parsedClasses.forEach((c: any) => {
+              // Strip sensitive info from students for security
+              const safeStudents = (c.students || []).map((stu: any) => ({
+                id: stu.id,
+                name: stu.name,
+                evaluations: [],
+                attendanceHistory: {},
+                status: "none"
+              }));
+              
               fetchedClasses.push({
                 id: Math.random().toString(36).substring(2, 9), // Generate new ID so we don't conflict
                 name: c.name,
-                studentsCount: c.students?.length || 0,
+                studentsCount: safeStudents.length,
                 teacherName: data.teacherName || "Professor(a)",
-                originalClass: c,
+                originalClass: {
+                  ...c,
+                  students: safeStudents
+                },
               });
             });
           } catch (e) {}
@@ -8140,7 +8164,7 @@ const SettingsScreen = ({
       const close_delim = "\r\n--" + boundary + "--";
 
       const metadata = {
-        name: `Horizonte_Relatorio_Consolidado_${new Date().toLocaleDateString("pt-BR").replace(/\//g, "-")}.csv`,
+        name: `Movimento_Relatorio_Consolidado_${new Date().toLocaleDateString("pt-BR").replace(/\//g, "-")}.csv`,
         mimeType: "text/csv"
       };
 
@@ -8175,11 +8199,11 @@ const SettingsScreen = ({
       const fileData = await uploadRes.json();
       const fileId = fileData.id;
 
-      // 6. Find or Create "Horizonte" folder
+      // 6. Find or Create "Colégio em Movimento" folder
       let folderId = null;
       try {
         const q = encodeURIComponent(
-          "mimeType='application/vnd.google-apps.folder' and name='Horizonte' and trashed=false",
+          "mimeType='application/vnd.google-apps.folder' and name='Colégio em Movimento' and trashed=false",
         );
         const folderSearchRes = await fetch(
           `https://www.googleapis.com/drive/v3/files?q=${q}`,
@@ -8201,7 +8225,7 @@ const SettingsScreen = ({
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                name: "Horizonte",
+                name: "Colégio em Movimento",
                 mimeType: "application/vnd.google-apps.folder",
               }),
             }
@@ -8210,10 +8234,10 @@ const SettingsScreen = ({
           folderId = createFolderData.id;
         }
       } catch (err) {
-        console.warn("Could not handle Horizonte folder", err);
+        console.warn("Could not handle Colégio em Movimento folder", err);
       }
 
-      // 7. Move CSV to "Horizonte" folder
+      // 7. Move CSV to "Colégio em Movimento" folder
       if (folderId) {
         try {
           const fileRes = await fetch(
@@ -9675,7 +9699,7 @@ const AdminScreen = ({
             </h3>
           </div>
           <p className="text-[11px] text-slate-500 font-manrope">
-            Gere chaves para compartilhar acessos a dados no Cloud do Horizonte
+            Gere chaves para compartilhar acessos a dados no Cloud do Colégio em Movimento
             com aplicações parceiras aprovadas.
           </p>
 
@@ -9978,7 +10002,7 @@ const LoginScreen = ({
             Bem-vindo(a)!
           </h1>
           <p className="text-slate-500 dark:text-slate-400 font-manrope text-sm leading-relaxed">
-            Plataforma Colégio Horizonte. Acesse ou cadastre-se de forma segura.
+            Plataforma Colégio em Movimento. Acesse ou cadastre-se de forma segura.
           </p>
         </div>
 
@@ -11446,7 +11470,7 @@ export default function App() {
       case "materials":
         return "Preparar Materiais";
       default:
-        return appData?.schoolName || "Horizonte";
+        return appData?.schoolName || "Colégio em Movimento";
     }
   };
 
@@ -12024,7 +12048,7 @@ export default function App() {
           Aplicativo Suspenso
         </h2>
         <p className="text-slate-500 dark:text-slate-400 font-manrope text-sm leading-relaxed mb-8 max-w-xs">
-          O acesso ao Colégio Horizonte foi temporariamente suspenso devido a
+          O acesso ao Colégio em Movimento foi temporariamente suspenso devido a
           pendências na ativação do plano. Entre em contato com o suporte para
           regularizar.
         </p>

@@ -7,7 +7,6 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    base: './',
     plugins: [
       react(), 
       tailwindcss(),
@@ -68,8 +67,14 @@ export default defineConfig(({mode}) => {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
+              if (id.includes('firebase/auth') || id.includes('@firebase/auth')) {
+                return 'vendor-firebase-auth';
+              }
+              if (id.includes('firebase/firestore') || id.includes('@firebase/firestore')) {
+                return 'vendor-firebase-firestore';
+              }
               if (id.includes('firebase')) {
-                return 'vendor-firebase';
+                return 'vendor-firebase-core';
               }
               if (id.includes('react/') || id.includes('react-dom/')) {
                 return 'vendor-react';

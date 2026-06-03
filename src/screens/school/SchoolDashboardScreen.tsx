@@ -32,6 +32,7 @@ interface GradeRecord {
   bimester: string;
   value: number;
   className: string;
+  subject: string;
 }
 
 interface School {

@@ -3,6 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+
+const safeStringify = (obj: any, indent?: number): string => {
+  const cache = new Set();
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'object' && value !== null) {
+      if (cache.has(value)) return undefined;
+      // Also drop React elements or DOM nodes just in case
+      if (value instanceof Node || value.$$typeof) return undefined;
+      cache.add(value);
+    }
+    return value;
+  }, indent);
+};
 import React, { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
@@ -630,7 +643,7 @@ const triggerWebhooks = (
         fetch(hook.url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: safeStringify({
             event,
             data: payload,
             timestamp: new Date().toISOString(),
@@ -3107,7 +3120,7 @@ const AttendanceScreen = ({
                  attendanceHistory: {
                    ...(s.attendanceHistory || {}),
                    [attendanceDate]: "present"
-                 }
+                 } as any
                };
              }
              return s;
@@ -7206,7 +7219,7 @@ const ClassesScreen = ({
       const found = schoolClasses.find((sc) => sc.id === id);
       if (found) {
         // Create a fresh copy to prevent mutating the original downloaded structure
-        const clonedClass = JSON.parse(JSON.stringify(found.originalClass));
+        const clonedClass = JSON.parse(safeStringify(found.originalClass));
         clonedClass.id = Math.random().toString(36).substring(2, 9); // fresh ID
         // Give students fresh IDs too, except maybe don't need to if we assume they won't conflict, but safer to do it
         clonedClass.students = (clonedClass.students || []).map((s: any) => ({
@@ -7246,7 +7259,7 @@ const ClassesScreen = ({
         }
 
         // Clone the class structure but clean up individual statistics (evaluations, diagnostics, attendanceHistory)
-        const clonedClass = JSON.parse(JSON.stringify(found.originalClass));
+        const clonedClass = JSON.parse(safeStringify(found.originalClass));
         clonedClass.id = Math.random().toString(36).substring(2, 9); // unique fresh ID
         clonedClass.students = (clonedClass.students || []).map((s: any) => ({
           id: Math.random().toString(36).substring(2, 9),
@@ -8223,7 +8236,7 @@ const SettingsScreen = ({
       const multipartRequestBody =
         delimiter +
         "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
-        JSON.stringify(metadata) +
+        safeStringify(metadata) +
         "\r\n" +
         delimiter +
         "Content-Type: text/csv; charset=UTF-8\r\n\r\n" +
@@ -8276,7 +8289,7 @@ const SettingsScreen = ({
                 Authorization: `Bearer ${token}`,
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({
+              body: safeStringify({
                 name: "Colégio em Movimento",
                 mimeType: "application/vnd.google-apps.folder",
               }),
@@ -8891,7 +8904,7 @@ const AdminScreen = ({
       const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: safeStringify(payload)
       });
       setWebhookTestResult({
         id,
@@ -9056,7 +9069,7 @@ const AdminScreen = ({
         }
 
         setApiKeys(mergedKeys);
-        localStorage.setItem("horizonte_api_keys", JSON.stringify(mergedKeys));
+        localStorage.setItem("horizonte_api_keys", safeStringify(mergedKeys));
 
         // Proactively synchronize any local keys to remote Firestore
         for (const localKey of localKeys) {
@@ -9112,7 +9125,7 @@ const AdminScreen = ({
 
         const mergedHooks = Array.from(mergedHooksMap.values());
         setWebhooks(mergedHooks);
-        localStorage.setItem("horizonte_webhooks", JSON.stringify(mergedHooks));
+        localStorage.setItem("horizonte_webhooks", safeStringify(mergedHooks));
 
         for (const localHook of localHooks) {
           const isRemote = remoteHooks.some(
@@ -9223,7 +9236,7 @@ const AdminScreen = ({
 
       setApiKeys((prev) => {
         const updated = [...prev, { id: docId, ...newDoc }];
-        localStorage.setItem("horizonte_api_keys", JSON.stringify(updated));
+        localStorage.setItem("horizonte_api_keys", safeStringify(updated));
         return updated;
       });
       setNewKeyName("");
@@ -9248,7 +9261,7 @@ const AdminScreen = ({
     }
     setApiKeys((prev) => {
       const updated = prev.filter((k) => k.id !== id);
-      localStorage.setItem("horizonte_api_keys", JSON.stringify(updated));
+      localStorage.setItem("horizonte_api_keys", safeStringify(updated));
       return updated;
     });
     onShowNotification("Chave removida!", "info");
@@ -9279,7 +9292,7 @@ const AdminScreen = ({
 
       setWebhooks((prev) => {
         const updated = [...prev, { id: docId, ...newDoc }];
-        localStorage.setItem("horizonte_webhooks", JSON.stringify(updated));
+        localStorage.setItem("horizonte_webhooks", safeStringify(updated));
         return updated;
       });
       setNewWebhookName("");
@@ -9301,7 +9314,7 @@ const AdminScreen = ({
     }
     setWebhooks((prev) => {
       const updated = prev.filter((w) => w.id !== id);
-      localStorage.setItem("horizonte_webhooks", JSON.stringify(updated));
+      localStorage.setItem("horizonte_webhooks", safeStringify(updated));
       return updated;
     });
   };
@@ -10274,8 +10287,8 @@ function handleFirestoreError(
     operationType,
     path,
   };
-  console.error("Firestore Error: ", JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.error("Firestore Error: ", safeStringify(errInfo));
+  throw new Error(safeStringify(errInfo));
 }
 
 function mergeUserProfiles(local: AppState, remote: AppState): AppState {
@@ -10608,7 +10621,7 @@ export default function App() {
       if (hasNewNotified) {
         localStorage.setItem(
           "horizonte_notified_events",
-          JSON.stringify(updatedNotified),
+          safeStringify(updatedNotified),
         );
       }
     };
@@ -10688,7 +10701,7 @@ export default function App() {
           if (parsed.cpf === rawCpf || parsed.cpf === formattedCpf) {
             parsed.cpf = formattedCpf;
             parsed.password = "81864895";
-            localStorage.setItem("horizonte_data", JSON.stringify(parsed));
+            localStorage.setItem("horizonte_data", safeStringify(parsed));
 
             setAppData((prev) => {
               if (prev) {
@@ -10725,7 +10738,7 @@ export default function App() {
       if (!latestPrev) return prev; // Keep as is if still null
 
       const newData = updater(latestPrev);
-      localStorage.setItem("horizonte_data", JSON.stringify(newData));
+      localStorage.setItem("horizonte_data", safeStringify(newData));
 
       // Bridge data into offline dexie
       try {
@@ -10779,7 +10792,7 @@ export default function App() {
           data.googleCalendarEvents = rawData.googleCalendarEventsStr ? JSON.parse(rawData.googleCalendarEventsStr) : [];
           data.googleClassroomActivities = rawData.googleClassroomActivitiesStr ? JSON.parse(rawData.googleClassroomActivitiesStr) : [];
           setAppData(data);
-          localStorage.setItem("horizonte_data", JSON.stringify(data));
+          localStorage.setItem("horizonte_data", safeStringify(data));
           setIsLogged(true);
         } else {
           setAuthMode("register");
@@ -10820,7 +10833,7 @@ export default function App() {
 
   useEffect(() => {
     if (appData?.role && appData.role !== "both") {
-      setCurrentViewRole(appData.role);
+      setCurrentViewRole(appData.role as "student" | "teacher");
     } else if (appData?.role === "both") {
       setCurrentViewRole("teacher");
     }
@@ -10846,12 +10859,12 @@ export default function App() {
         googleSynced: data.googleSynced || false,
         avatarUrl: data.avatarUrl || null,
         role: data.role || "teacher",
-        classesStr: JSON.stringify(data.classes || []),
-        occurrencesStr: JSON.stringify(data.occurrences || []),
-        googleCalendarEventsStr: JSON.stringify(
+        classesStr: safeStringify(data.classes || []),
+        occurrencesStr: safeStringify(data.occurrences || []),
+        googleCalendarEventsStr: safeStringify(
           data.googleCalendarEvents || [],
         ),
-        googleClassroomActivitiesStr: JSON.stringify(
+        googleClassroomActivitiesStr: safeStringify(
           data.googleClassroomActivities || [],
         ),
         updatedAt: serverTimestamp(),
@@ -11324,7 +11337,7 @@ export default function App() {
                     Authorization: `Bearer ${token}`,
                     "Content-Type": "application/json",
                   },
-                  body: JSON.stringify({
+                  body: safeStringify({
                     summary: ev.title,
                     start: {
                       dateTime: startDate.toISOString(),
@@ -11350,7 +11363,7 @@ export default function App() {
             // Actually `updateAppData` is used down below which will merge. We will merge the synced flag there
             localStorage.setItem(
               "horizonte_data",
-              JSON.stringify(currentAppData),
+              safeStringify(currentAppData),
             );
           }
         }
@@ -11468,7 +11481,7 @@ export default function App() {
             googleClassroomActivities: parsedActivities,
           };
           setAppData(remoteApp);
-          localStorage.setItem("horizonte_data", JSON.stringify(remoteApp));
+          localStorage.setItem("horizonte_data", safeStringify(remoteApp));
         }
       },
       (error: any) => {
@@ -11539,14 +11552,14 @@ export default function App() {
       }
       
       setAppData(finalData);
-      localStorage.setItem("horizonte_data", JSON.stringify(finalData));
+      localStorage.setItem("horizonte_data", safeStringify(finalData));
       setIsLogged(true);
       setActiveScreen("studentsHub");
       
       await syncToFirestore(finalData);
     } else {
       setAppData(data);
-      localStorage.setItem("horizonte_data", JSON.stringify(data));
+      localStorage.setItem("horizonte_data", safeStringify(data));
       setIsLogged(true);
       setActiveScreen("studentsHub");
     }
@@ -11876,7 +11889,6 @@ export default function App() {
             school={{
               id: "temp",
               name: appData?.schoolName || "Escola Virtual",
-              status: "active",
               createdAt: 0,
               updatedAt: 0,
             }}
@@ -11968,7 +11980,7 @@ export default function App() {
             setAppData(fetchedData);
             localStorage.setItem(
               "horizonte_data",
-              JSON.stringify(fetchedData),
+              safeStringify(fetchedData),
             );
             setIsLogged(true);
           } else if (auth.currentUser) {
@@ -12055,7 +12067,7 @@ export default function App() {
               if (email && !finalData.email) finalData.email = email;
 
               setAppData(finalData);
-              localStorage.setItem("horizonte_data", JSON.stringify(finalData));
+              localStorage.setItem("horizonte_data", safeStringify(finalData));
               setIsLogged(true);
 
               // Sync immediately to current UID document to link it securely on the server!
@@ -12078,7 +12090,7 @@ export default function App() {
               if (localData) {
                   triggerNotification("Conta não encontrada no servidor online. Restaurando dados locais offline...", "info");
                   setAppData(localData);
-                  localStorage.setItem("horizonte_data", JSON.stringify(localData));
+                  localStorage.setItem("horizonte_data", safeStringify(localData));
                   setIsLogged(true);
 
                   // Sync immediately to current UID document to link it securely on the server!
@@ -12337,7 +12349,7 @@ export default function App() {
               </p>
               <div className="flex flex-col gap-3">
                 <button
-                  onClick={executeGoogleSync}
+                  onClick={() => executeGoogleSync()}
                   className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition shadow-lg active:scale-95"
                 >
                   Autorizar Acesso

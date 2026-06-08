@@ -27,7 +27,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="br.com.jefson.tarefaflow"
+                    android:scheme="br.com.colegioemmovimento.app"
                     android:host="auth" />
             </intent-filter>
 

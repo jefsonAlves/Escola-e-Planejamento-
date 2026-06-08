@@ -1,4 +1,4 @@
-package br.com.jefson.tarefaflow;
+package br.com.colegioemmovimento.app;
 
 import com.getcapacitor.BridgeActivity;
 

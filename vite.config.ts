@@ -6,9 +6,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const isVercel = process.env.VERCEL === '1';
+
   return {
-    // Mantém os assets relativos para funcionar em subpastas, GitHub Pages e Capacitor.
-    base: env.VITE_BASE_PATH || './',
+    // Vercel deve usar '/', enquanto Capacitor/APK e subpastas funcionam melhor com './'.
+    base: env.VITE_BASE_PATH || (isVercel ? '/' : './'),
     plugins: [
       react(), 
       tailwindcss(),

@@ -5,6 +5,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 
 type CalculationMode = "sum" | "simple_average" | "weighted_average";
+type ScoringType = "numeric" | "check_count";
 
 type StudentEvaluation = {
   id: string;
@@ -21,6 +22,9 @@ type StudentEvaluation = {
   source?: string;
   targetGrade?: number;
   calculationMode?: CalculationMode;
+  scoringType?: ScoringType;
+  checkCount?: number;
+  pointsPerCheck?: number;
   isBimesterSummary?: boolean;
 };
 
@@ -48,23 +52,34 @@ type AssessmentItem = {
   category: string;
   maxPoints: number;
   weight: number;
+  scoringType: ScoringType;
+  pointsPerCheck: number;
+};
+
+type QuickAssessment = {
+  label: string;
+  scoringType: ScoringType;
+  maxPoints?: number;
+  pointsPerCheck?: number;
 };
 
 const SOURCE = "advanced-grade-panel";
 const BIMESTERS = ["1º Bimestre", "2º Bimestre", "3º Bimestre", "4º Bimestre"];
-const QUICK_CATEGORIES = [
-  "Prova",
-  "Atividade",
-  "Trabalho",
-  "Participação",
-  "Projeto",
-  "Seminário",
-  "Recuperação",
+const QUICK_ASSESSMENTS: QuickAssessment[] = [
+  { label: "Prova", scoringType: "numeric", maxPoints: 10 },
+  { label: "Atividade", scoringType: "numeric", maxPoints: 10 },
+  { label: "Visto", scoringType: "check_count", maxPoints: 2, pointsPerCheck: 0.25 },
+  { label: "Trabalho", scoringType: "numeric", maxPoints: 10 },
+  { label: "Participação", scoringType: "numeric", maxPoints: 10 },
+  { label: "Projeto", scoringType: "numeric", maxPoints: 10 },
+  { label: "Seminário", scoringType: "numeric", maxPoints: 10 },
+  { label: "Recuperação", scoringType: "numeric", maxPoints: 10 },
 ];
 
 const DEFAULT_ASSESSMENTS: AssessmentItem[] = [
-  { id: "prova-1", title: "Prova 1", category: "Prova", maxPoints: 10, weight: 1 },
-  { id: "atividade-1", title: "Atividade 1", category: "Atividade", maxPoints: 10, weight: 1 },
+  { id: "prova-1", title: "Prova 1", category: "Prova", maxPoints: 10, weight: 1, scoringType: "numeric", pointsPerCheck: 1 },
+  { id: "atividade-1", title: "Atividade 1", category: "Atividade", maxPoints: 10, weight: 1, scoringType: "numeric", pointsPerCheck: 1 },
+  { id: "visto-1", title: "Vistos de atividades", category: "Visto", maxPoints: 2, weight: 1, scoringType: "check_count", pointsPerCheck: 0.25 },
 ];
 
 const createId = () => {
@@ -98,16 +113,37 @@ const safeParseClasses = (raw: unknown): ClassData[] => {
   }
 };
 
-const createAssessment = (category: string, index: number): AssessmentItem => ({
-  id: createId(),
-  title: `${category} ${index}`,
-  category,
-  maxPoints: 10,
-  weight: 1,
-});
+const isCheckCategory = (category: string) => category.toLowerCase().includes("visto");
+
+const createAssessment = (category: string, index: number, scoringType?: ScoringType): AssessmentItem => {
+  const nextScoringType = scoringType || (isCheckCategory(category) ? "check_count" : "numeric");
+  const isCheck = nextScoringType === "check_count";
+
+  return {
+    id: createId(),
+    title: isCheck ? `${category} de atividades` : `${category} ${index}`,
+    category,
+    maxPoints: isCheck ? 2 : 10,
+    weight: 1,
+    scoringType: nextScoringType,
+    pointsPerCheck: isCheck ? 0.25 : 1,
+  };
+};
 
 const getAssessmentKey = (evaluation: StudentEvaluation) =>
-  evaluation.assessmentId || `${evaluation.method}-${evaluation.category || "Nota"}-${evaluation.maxPoints || 10}-${evaluation.weight || 1}`;
+  evaluation.assessmentId ||
+  `${evaluation.method}-${evaluation.category || "Nota"}-${evaluation.maxPoints || 10}-${evaluation.weight || 1}-${evaluation.scoringType || "numeric"}`;
+
+const calculateAssessmentPoints = (assessment: AssessmentItem, rawValue: string | number | undefined) => {
+  const value = parseNumber(rawValue, 0);
+  if (assessment.scoringType === "check_count") {
+    const checks = Math.max(value, 0);
+    const converted = checks * Math.max(assessment.pointsPerCheck || 0, 0);
+    return roundGrade(Math.min(converted, Math.max(assessment.maxPoints || converted, 0)));
+  }
+
+  return roundGrade(Math.min(Math.max(value, 0), Math.max(assessment.maxPoints || value, 0)));
+};
 
 export default function AdvancedGradePanel() {
   const [user, setUser] = useState<User | null>(null);
@@ -121,6 +157,7 @@ export default function AdvancedGradePanel() {
   const [calculationMode, setCalculationMode] = useState<CalculationMode>("sum");
   const [targetGrade, setTargetGrade] = useState("10");
   const [customCategory, setCustomCategory] = useState("");
+  const [customScoringType, setCustomScoringType] = useState<ScoringType>("numeric");
   const [assessments, setAssessments] = useState<AssessmentItem[]>(
     DEFAULT_ASSESSMENTS.map((item, index) => ({ ...item, id: `${item.id}-${index}` })),
   );
@@ -205,6 +242,7 @@ export default function AdvancedGradePanel() {
         )
         .forEach((evaluation) => {
           const key = getAssessmentKey(evaluation);
+          const scoringType = evaluation.scoringType || (isCheckCategory(evaluation.category || "") ? "check_count" : "numeric");
           if (!uniqueAssessments.has(key)) {
             uniqueAssessments.set(key, {
               id: key,
@@ -212,9 +250,11 @@ export default function AdvancedGradePanel() {
               category: evaluation.category || "Nota",
               maxPoints: evaluation.maxPoints || 10,
               weight: evaluation.weight || 1,
+              scoringType,
+              pointsPerCheck: evaluation.pointsPerCheck || (scoringType === "check_count" ? 0.25 : 1),
             });
           }
-          nextInputs[`${student.id}:${key}`] = String(evaluation.points ?? "");
+          nextInputs[`${student.id}:${key}`] = String(scoringType === "check_count" ? evaluation.checkCount ?? "" : evaluation.points ?? "");
         });
     });
 
@@ -224,24 +264,35 @@ export default function AdvancedGradePanel() {
 
   const updateAssessment = (id: string, field: keyof AssessmentItem, value: string) => {
     setAssessments((current) =>
-      current.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              [field]: field === "maxPoints" || field === "weight" ? parseNumber(value, 0) : value,
-            }
-          : item,
-      ),
+      current.map((item) => {
+        if (item.id !== id) return item;
+
+        if (field === "scoringType") {
+          const scoringType = value as ScoringType;
+          return {
+            ...item,
+            scoringType,
+            category: scoringType === "check_count" && !isCheckCategory(item.category) ? "Visto" : item.category,
+            maxPoints: scoringType === "check_count" && item.maxPoints === 10 ? 2 : item.maxPoints,
+            pointsPerCheck: scoringType === "check_count" && item.pointsPerCheck === 1 ? 0.25 : item.pointsPerCheck,
+          };
+        }
+
+        return {
+          ...item,
+          [field]: field === "maxPoints" || field === "weight" || field === "pointsPerCheck" ? parseNumber(value, 0) : value,
+        };
+      }),
     );
   };
 
-  const addAssessment = (category = "Atividade") => {
-    setAssessments((current) => [...current, createAssessment(category, current.length + 1)]);
+  const addAssessment = (category = "Atividade", scoringType?: ScoringType) => {
+    setAssessments((current) => [...current, createAssessment(category, current.length + 1, scoringType)]);
   };
 
   const addCustomAssessment = () => {
-    const category = customCategory.trim() || "Outro";
-    addAssessment(category);
+    const category = customCategory.trim() || (customScoringType === "check_count" ? "Visto" : "Outro");
+    addAssessment(category, customScoringType);
     setCustomCategory("");
   };
 
@@ -263,8 +314,9 @@ export default function AdvancedGradePanel() {
         const hasValue = raw !== undefined && raw !== "";
         return {
           assessment,
+          raw,
           hasValue,
-          value: parseNumber(raw, 0),
+          value: calculateAssessmentPoints(assessment, raw),
         };
       })
       .filter((item) => item.hasValue);
@@ -320,6 +372,7 @@ export default function AdvancedGradePanel() {
         category: item.category.trim() || "Nota",
         maxPoints: Math.max(item.maxPoints || parseNumber(targetGrade, 10), 0.01),
         weight: Math.max(item.weight || 1, 0),
+        pointsPerCheck: Math.max(item.pointsPerCheck || 0, 0),
       }))
       .filter((item) => item.title);
 
@@ -347,7 +400,9 @@ export default function AdvancedGradePanel() {
             const newEvaluations: StudentEvaluation[] = validAssessments.flatMap((assessment) => {
               const raw = gradeInputs[`${student.id}:${assessment.id}`];
               if (raw === undefined || raw === "") return [];
-              const points = parseNumber(raw, 0);
+              const points = calculateAssessmentPoints(assessment, raw);
+              const checkCount = assessment.scoringType === "check_count" ? parseNumber(raw, 0) : undefined;
+
               return [
                 {
                   id: createId(),
@@ -359,10 +414,16 @@ export default function AdvancedGradePanel() {
                   weight: assessment.weight,
                   date: now,
                   bimester: selectedBimester,
-                  notes: `Lançado no painel Notas+. Cálculo: ${calculationMode}.`,
+                  notes:
+                    assessment.scoringType === "check_count"
+                      ? `Vistos lançados: ${formatGrade(checkCount || 0)}. Cada visto vale ${formatGrade(assessment.pointsPerCheck)} ponto(s). Cálculo: ${calculationMode}.`
+                      : `Lançado no painel Notas+. Cálculo: ${calculationMode}.`,
                   source: SOURCE,
                   targetGrade: finalTarget,
                   calculationMode,
+                  scoringType: assessment.scoringType,
+                  checkCount,
+                  pointsPerCheck: assessment.pointsPerCheck,
                 },
               ];
             });
@@ -384,10 +445,10 @@ export default function AdvancedGradePanel() {
                   grade: String(finalGrade),
                   notes:
                     calculationMode === "sum"
-                      ? `Nota final calculada pela soma das avaliações. Soma bruta: ${formatGrade(rawTotal)}. Limite do bimestre: ${formatGrade(finalTarget)}.`
+                      ? `Nota final calculada pela soma de provas, atividades, trabalhos e vistos. Soma bruta: ${formatGrade(rawTotal)}. Limite do bimestre: ${formatGrade(finalTarget)}.`
                       : calculationMode === "weighted_average"
-                        ? `Nota final calculada por média ponderada para o bimestre, com nota desejada ${formatGrade(finalTarget)}.`
-                        : `Nota final calculada por média simples para o bimestre, com nota desejada ${formatGrade(finalTarget)}.`,
+                        ? `Nota final calculada por média ponderada para o bimestre, incluindo vistos convertidos em pontos. Nota desejada: ${formatGrade(finalTarget)}.`
+                        : `Nota final calculada por média simples para o bimestre, incluindo vistos convertidos em pontos. Nota desejada: ${formatGrade(finalTarget)}.`,
                   source: SOURCE,
                   targetGrade: finalTarget,
                   calculationMode,
@@ -416,7 +477,7 @@ export default function AdvancedGradePanel() {
       );
 
       setClasses(nextClasses);
-      setMessage("Notas e fechamento bimestral salvos. O painel antigo passará a mostrar o fechamento como nota final do bimestre.");
+      setMessage("Notas, vistos e fechamento bimestral salvos. Os vistos foram convertidos em pontos e somados/médios conforme o cálculo escolhido.");
     } catch (error) {
       console.error("Erro ao salvar notas avançadas", error);
       setMessage("Não foi possível salvar as notas avançadas.");
@@ -429,10 +490,10 @@ export default function AdvancedGradePanel() {
 
   const calculationHelp =
     calculationMode === "sum"
-      ? "Soma todas as avaliações lançadas e limita o resultado à nota desejada do bimestre. Ex.: prova + atividade + trabalho até 10 pontos."
+      ? "Soma provas, atividades, trabalhos e vistos convertidos em pontos, limitando o resultado à nota desejada do bimestre."
       : calculationMode === "weighted_average"
-        ? "Calcula a média considerando o peso de cada avaliação. Use peso maior para prova e menor para atividades."
-        : "Calcula a média simples das avaliações, convertendo cada uma para a nota desejada do bimestre.";
+        ? "Calcula a média considerando o peso de cada avaliação. Os vistos entram convertidos em pontos antes da média."
+        : "Calcula a média simples das avaliações. Os vistos entram como uma avaliação convertida em pontos.";
 
   return (
     <>
@@ -447,12 +508,12 @@ export default function AdvancedGradePanel() {
 
       {open && (
         <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4">
-          <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-950 sm:rounded-3xl">
+          <div className="flex max-h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-950 sm:rounded-3xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Notas+</p>
-                <h2 className="text-xl font-black text-slate-900 dark:text-white">Avaliações e fechamento bimestral</h2>
-                <p className="text-xs text-slate-500">Crie várias notas por aluno, como prova, atividade, projeto, seminário e recuperação.</p>
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">Avaliações, vistos e fechamento bimestral</h2>
+                <p className="text-xs text-slate-500">Some provas, atividades, trabalhos e vistos de caderno/atividade na média do bimestre.</p>
               </div>
               <button
                 type="button"
@@ -502,7 +563,7 @@ export default function AdvancedGradePanel() {
                         onChange={(event) => setCalculationMode(event.target.value as CalculationMode)}
                         className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold normal-case text-slate-800 outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                       >
-                        <option value="sum">Somar avaliações</option>
+                        <option value="sum">Somar avaliações e vistos</option>
                         <option value="simple_average">Média simples</option>
                         <option value="weighted_average">Média ponderada</option>
                       </select>
@@ -528,29 +589,37 @@ export default function AdvancedGradePanel() {
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <h3 className="text-sm font-black text-slate-800 dark:text-white">Instrumentos de avaliação</h3>
-                        <p className="text-xs text-slate-500">Adicione quantas notas quiser no mesmo bimestre.</p>
+                        <p className="text-xs text-slate-500">Crie provas, atividades e uma coluna de vistos. Em vistos, digite a quantidade de vistos do aluno.</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {QUICK_CATEGORIES.map((category) => (
+                        {QUICK_ASSESSMENTS.map((item) => (
                           <button
-                            key={category}
+                            key={item.label}
                             type="button"
-                            onClick={() => addAssessment(category)}
-                            className="rounded-full bg-primary/10 px-3 py-1.5 text-[10px] font-black uppercase text-primary"
+                            onClick={() => addAssessment(item.label, item.scoringType)}
+                            className={`rounded-full px-3 py-1.5 text-[10px] font-black uppercase ${item.scoringType === "check_count" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-primary/10 text-primary"}`}
                           >
-                            + {category}
+                            + {item.label}
                           </button>
                         ))}
                       </div>
                     </div>
 
-                    <div className="mb-3 flex flex-col gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-900 sm:flex-row">
+                    <div className="mb-3 grid gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-900 sm:grid-cols-[1fr_0.8fr_auto]">
                       <input
                         value={customCategory}
                         onChange={(event) => setCustomCategory(event.target.value)}
-                        placeholder="Criar outro meio de nota: feira, leitura, debate..."
-                        className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                        placeholder="Criar outro meio: leitura, debate, ginástica, feira..."
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                       />
+                      <select
+                        value={customScoringType}
+                        onChange={(event) => setCustomScoringType(event.target.value as ScoringType)}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      >
+                        <option value="numeric">Nota direta</option>
+                        <option value="check_count">Quantidade de vistos</option>
+                      </select>
                       <button
                         type="button"
                         onClick={addCustomAssessment}
@@ -562,7 +631,7 @@ export default function AdvancedGradePanel() {
 
                     <div className="space-y-2">
                       {assessments.map((assessment) => (
-                        <div key={assessment.id} className="grid gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-900 md:grid-cols-[1.5fr_1fr_0.7fr_0.7fr_auto]">
+                        <div key={assessment.id} className="grid gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-900 md:grid-cols-[1.4fr_0.9fr_0.85fr_0.65fr_0.65fr_0.75fr_auto]">
                           <input
                             value={assessment.title}
                             onChange={(event) => updateAssessment(assessment.id, "title", event.target.value)}
@@ -575,6 +644,14 @@ export default function AdvancedGradePanel() {
                             placeholder="Tipo"
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                           />
+                          <select
+                            value={assessment.scoringType}
+                            onChange={(event) => updateAssessment(assessment.id, "scoringType", event.target.value)}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                          >
+                            <option value="numeric">Nota</option>
+                            <option value="check_count">Vistos</option>
+                          </select>
                           <input
                             value={assessment.maxPoints}
                             onChange={(event) => updateAssessment(assessment.id, "maxPoints", event.target.value)}
@@ -590,6 +667,15 @@ export default function AdvancedGradePanel() {
                             title="Peso para média ponderada"
                             placeholder="Peso"
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                          />
+                          <input
+                            value={assessment.pointsPerCheck}
+                            onChange={(event) => updateAssessment(assessment.id, "pointsPerCheck", event.target.value)}
+                            inputMode="decimal"
+                            disabled={assessment.scoringType !== "check_count"}
+                            title="Quanto vale cada visto"
+                            placeholder="Valor/visto"
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                           />
                           <button
                             type="button"
@@ -609,9 +695,13 @@ export default function AdvancedGradePanel() {
                         <tr>
                           <th className="sticky left-0 z-10 bg-slate-100 p-3 dark:bg-slate-900">Aluno</th>
                           {assessments.map((assessment) => (
-                            <th key={assessment.id} className="min-w-32 p-3 text-center">
+                            <th key={assessment.id} className="min-w-36 p-3 text-center">
                               <span className="block text-slate-700 dark:text-slate-200">{assessment.title || "Avaliação"}</span>
-                              <span className="block text-[10px] normal-case text-slate-400">máx. {formatGrade(assessment.maxPoints)} | peso {formatGrade(assessment.weight)}</span>
+                              <span className="block text-[10px] normal-case text-slate-400">
+                                {assessment.scoringType === "check_count"
+                                  ? `${formatGrade(assessment.pointsPerCheck)} por visto | limite ${formatGrade(assessment.maxPoints)}`
+                                  : `máx. ${formatGrade(assessment.maxPoints)} | peso ${formatGrade(assessment.weight)}`}
+                              </span>
                             </th>
                           ))}
                           <th className="min-w-28 p-3 text-center text-primary">Soma</th>
@@ -622,22 +712,31 @@ export default function AdvancedGradePanel() {
                         {students.map((student) => (
                           <tr key={student.id} className="border-t border-slate-100 dark:border-slate-800">
                             <td className="sticky left-0 z-10 bg-white p-3 font-bold text-slate-800 dark:bg-slate-950 dark:text-white">{student.name}</td>
-                            {assessments.map((assessment) => (
-                              <td key={assessment.id} className="p-2 text-center">
-                                <input
-                                  value={gradeInputs[`${student.id}:${assessment.id}`] || ""}
-                                  onChange={(event) =>
-                                    setGradeInputs((current) => ({
-                                      ...current,
-                                      [`${student.id}:${assessment.id}`]: event.target.value,
-                                    }))
-                                  }
-                                  inputMode="decimal"
-                                  placeholder="0"
-                                  className="w-24 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-center font-mono font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-900 dark:text-white"
-                                />
-                              </td>
-                            ))}
+                            {assessments.map((assessment) => {
+                              const raw = gradeInputs[`${student.id}:${assessment.id}`] || "";
+                              const converted = calculateAssessmentPoints(assessment, raw);
+                              return (
+                                <td key={assessment.id} className="p-2 text-center">
+                                  <input
+                                    value={raw}
+                                    onChange={(event) =>
+                                      setGradeInputs((current) => ({
+                                        ...current,
+                                        [`${student.id}:${assessment.id}`]: event.target.value,
+                                      }))
+                                    }
+                                    inputMode="decimal"
+                                    placeholder={assessment.scoringType === "check_count" ? "vistos" : "0"}
+                                    className="w-24 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-center font-mono font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                                  />
+                                  {assessment.scoringType === "check_count" && raw !== "" && (
+                                    <div className="mt-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-300">
+                                      = {formatGrade(converted)} pts
+                                    </div>
+                                  )}
+                                </td>
+                              );
+                            })}
                             <td className="p-3 text-center font-mono text-sm font-black text-slate-500">{formatGrade(getRawTotal(student.id))}</td>
                             <td className="p-3 text-center font-mono text-lg font-black text-primary">{formatGrade(calculateFinal(student.id))}</td>
                           </tr>
@@ -664,7 +763,7 @@ export default function AdvancedGradePanel() {
                 disabled={saving || loading || !activeClass}
                 className="w-full rounded-xl bg-primary py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg disabled:opacity-50"
               >
-                {saving ? "Salvando..." : "Salvar avaliações e fechamento do bimestre"}
+                {saving ? "Salvando..." : "Salvar notas, vistos e fechamento do bimestre"}
               </button>
             </div>
           </div>

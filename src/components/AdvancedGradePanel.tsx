@@ -8,6 +8,7 @@ type CalculationMode = "sum" | "simple_average" | "weighted_average";
 
 type StudentEvaluation = {
   id: string;
+  assessmentId?: string;
   method: string;
   points: number;
   date: string;
@@ -18,6 +19,7 @@ type StudentEvaluation = {
   maxPoints?: number;
   weight?: number;
   source?: string;
+  targetGrade?: number;
   calculationMode?: CalculationMode;
   isBimesterSummary?: boolean;
 };
@@ -50,6 +52,16 @@ type AssessmentItem = {
 
 const SOURCE = "advanced-grade-panel";
 const BIMESTERS = ["1º Bimestre", "2º Bimestre", "3º Bimestre", "4º Bimestre"];
+const QUICK_CATEGORIES = [
+  "Prova",
+  "Atividade",
+  "Trabalho",
+  "Participação",
+  "Projeto",
+  "Seminário",
+  "Recuperação",
+];
+
 const DEFAULT_ASSESSMENTS: AssessmentItem[] = [
   { id: "prova-1", title: "Prova 1", category: "Prova", maxPoints: 10, weight: 1 },
   { id: "atividade-1", title: "Atividade 1", category: "Atividade", maxPoints: 10, weight: 1 },
@@ -62,12 +74,18 @@ const createId = () => {
 
 const parseNumber = (value: string | number | undefined, fallback = 0) => {
   if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
-  if (!value) return fallback;
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
   const parsed = Number(String(value).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 const roundGrade = (value: number) => Math.round(value * 100) / 100;
+
+const formatGrade = (value: number) =>
+  roundGrade(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 
 const safeParseClasses = (raw: unknown): ClassData[] => {
   if (Array.isArray(raw)) return raw as ClassData[];
@@ -80,6 +98,17 @@ const safeParseClasses = (raw: unknown): ClassData[] => {
   }
 };
 
+const createAssessment = (category: string, index: number): AssessmentItem => ({
+  id: createId(),
+  title: `${category} ${index}`,
+  category,
+  maxPoints: 10,
+  weight: 1,
+});
+
+const getAssessmentKey = (evaluation: StudentEvaluation) =>
+  evaluation.assessmentId || `${evaluation.method}-${evaluation.category || "Nota"}-${evaluation.maxPoints || 10}-${evaluation.weight || 1}`;
+
 export default function AdvancedGradePanel() {
   const [user, setUser] = useState<User | null>(null);
   const [open, setOpen] = useState(false);
@@ -91,7 +120,10 @@ export default function AdvancedGradePanel() {
   const [selectedBimester, setSelectedBimester] = useState(BIMESTERS[0]);
   const [calculationMode, setCalculationMode] = useState<CalculationMode>("sum");
   const [targetGrade, setTargetGrade] = useState("10");
-  const [assessments, setAssessments] = useState<AssessmentItem[]>(DEFAULT_ASSESSMENTS);
+  const [customCategory, setCustomCategory] = useState("");
+  const [assessments, setAssessments] = useState<AssessmentItem[]>(
+    DEFAULT_ASSESSMENTS.map((item, index) => ({ ...item, id: `${item.id}-${index}` })),
+  );
   const [gradeInputs, setGradeInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -119,7 +151,7 @@ export default function AdvancedGradePanel() {
         setClasses(loadedClasses);
         setSelectedClassId((current) => current || loadedClasses[0]?.id || "");
         if (loadedClasses.length === 0) {
-          setMessage("Nenhuma turma encontrada. Cadastre turmas e alunos antes de usar as notas avançadas.");
+          setMessage("Nenhuma turma encontrada. Cadastre turmas e alunos antes de lançar notas avançadas.");
         }
       } catch (error) {
         console.error("Erro ao carregar turmas para notas avançadas", error);
@@ -155,7 +187,7 @@ export default function AdvancedGradePanel() {
       );
 
     if (advancedEvaluations.length === 0) {
-      setAssessments(DEFAULT_ASSESSMENTS.map((item) => ({ ...item, id: createId() })));
+      setAssessments(DEFAULT_ASSESSMENTS.map((item, index) => ({ ...item, id: createId() || `${item.id}-${index}` })));
       setGradeInputs({});
       return;
     }
@@ -172,7 +204,7 @@ export default function AdvancedGradePanel() {
             !evaluation.isBimesterSummary,
         )
         .forEach((evaluation) => {
-          const key = `${evaluation.method}-${evaluation.category || "Nota"}`;
+          const key = getAssessmentKey(evaluation);
           if (!uniqueAssessments.has(key)) {
             uniqueAssessments.set(key, {
               id: key,
@@ -188,7 +220,7 @@ export default function AdvancedGradePanel() {
 
     setAssessments(Array.from(uniqueAssessments.values()));
     setGradeInputs(nextInputs);
-  }, [activeClass?.id, selectedBimester]);
+  }, [activeClass, selectedBimester]);
 
   const updateAssessment = (id: string, field: keyof AssessmentItem, value: string) => {
     setAssessments((current) =>
@@ -204,16 +236,13 @@ export default function AdvancedGradePanel() {
   };
 
   const addAssessment = (category = "Atividade") => {
-    setAssessments((current) => [
-      ...current,
-      {
-        id: createId(),
-        title: `${category} ${current.length + 1}`,
-        category,
-        maxPoints: 10,
-        weight: 1,
-      },
-    ]);
+    setAssessments((current) => [...current, createAssessment(category, current.length + 1)]);
+  };
+
+  const addCustomAssessment = () => {
+    const category = customCategory.trim() || "Outro";
+    addAssessment(category);
+    setCustomCategory("");
   };
 
   const removeAssessment = (id: string) => {
@@ -227,9 +256,8 @@ export default function AdvancedGradePanel() {
     });
   };
 
-  const calculateFinal = (studentId: string) => {
-    const finalTarget = Math.max(parseNumber(targetGrade, 10), 0);
-    const filledAssessments = assessments
+  const getFilledAssessments = (studentId: string) =>
+    assessments
       .map((assessment) => {
         const raw = gradeInputs[`${studentId}:${assessment.id}`];
         const hasValue = raw !== undefined && raw !== "";
@@ -240,6 +268,10 @@ export default function AdvancedGradePanel() {
         };
       })
       .filter((item) => item.hasValue);
+
+  const calculateFinal = (studentId: string) => {
+    const finalTarget = Math.max(parseNumber(targetGrade, 10), 0);
+    const filledAssessments = getFilledAssessments(studentId);
 
     if (filledAssessments.length === 0) return 0;
 
@@ -271,6 +303,9 @@ export default function AdvancedGradePanel() {
     return roundGrade(averagePercent * finalTarget);
   };
 
+  const getRawTotal = (studentId: string) =>
+    roundGrade(getFilledAssessments(studentId).reduce((sum, item) => sum + item.value, 0));
+
   const saveGrades = async () => {
     if (!user || !activeClass) return;
     if (assessments.length === 0) {
@@ -278,7 +313,16 @@ export default function AdvancedGradePanel() {
       return;
     }
 
-    const validAssessments = assessments.filter((item) => item.title.trim());
+    const validAssessments = assessments
+      .map((item) => ({
+        ...item,
+        title: item.title.trim(),
+        category: item.category.trim() || "Nota",
+        maxPoints: Math.max(item.maxPoints || parseNumber(targetGrade, 10), 0.01),
+        weight: Math.max(item.weight || 1, 0),
+      }))
+      .filter((item) => item.title);
+
     if (validAssessments.length === 0) {
       setMessage("Informe o nome de pelo menos uma avaliação.");
       return;
@@ -289,6 +333,7 @@ export default function AdvancedGradePanel() {
 
     try {
       const now = new Date().toISOString();
+      const finalTarget = parseNumber(targetGrade, 10);
       const nextClasses = classes.map((classItem) => {
         if (classItem.id !== activeClass.id) return classItem;
 
@@ -296,8 +341,7 @@ export default function AdvancedGradePanel() {
           ...classItem,
           students: classItem.students.map((student) => {
             const previousEvaluations = (student.evaluations || []).filter(
-              (evaluation) =>
-                !(evaluation.source === SOURCE && evaluation.bimester === selectedBimester),
+              (evaluation) => !(evaluation.source === SOURCE && evaluation.bimester === selectedBimester),
             );
 
             const newEvaluations: StudentEvaluation[] = validAssessments.flatMap((assessment) => {
@@ -307,21 +351,24 @@ export default function AdvancedGradePanel() {
               return [
                 {
                   id: createId(),
-                  method: assessment.title.trim(),
-                  category: assessment.category.trim() || "Nota",
+                  assessmentId: assessment.id,
+                  method: assessment.title,
+                  category: assessment.category,
                   points,
-                  maxPoints: assessment.maxPoints || parseNumber(targetGrade, 10),
-                  weight: assessment.weight || 1,
+                  maxPoints: assessment.maxPoints,
+                  weight: assessment.weight,
                   date: now,
                   bimester: selectedBimester,
-                  notes: `Lançado no painel avançado. Cálculo: ${calculationMode}.`,
+                  notes: `Lançado no painel Notas+. Cálculo: ${calculationMode}.`,
                   source: SOURCE,
+                  targetGrade: finalTarget,
                   calculationMode,
                 },
               ];
             });
 
             const finalGrade = calculateFinal(student.id);
+            const rawTotal = getRawTotal(student.id);
             const hasAnyGrade = newEvaluations.length > 0;
 
             const summaryEvaluation: StudentEvaluation | null = hasAnyGrade
@@ -330,18 +377,19 @@ export default function AdvancedGradePanel() {
                   method: `Fechamento - ${selectedBimester}`,
                   category: "Fechamento do Bimestre",
                   points: finalGrade,
-                  maxPoints: parseNumber(targetGrade, 10),
+                  maxPoints: finalTarget,
                   weight: 1,
                   date: now,
                   bimester: selectedBimester,
                   grade: String(finalGrade),
                   notes:
                     calculationMode === "sum"
-                      ? "Nota final calculada pela soma das avaliações, limitada à nota desejada do bimestre."
+                      ? `Nota final calculada pela soma das avaliações. Soma bruta: ${formatGrade(rawTotal)}. Limite do bimestre: ${formatGrade(finalTarget)}.`
                       : calculationMode === "weighted_average"
-                        ? "Nota final calculada por média ponderada."
-                        : "Nota final calculada por média simples.",
+                        ? `Nota final calculada por média ponderada para o bimestre, com nota desejada ${formatGrade(finalTarget)}.`
+                        : `Nota final calculada por média simples para o bimestre, com nota desejada ${formatGrade(finalTarget)}.`,
                   source: SOURCE,
+                  targetGrade: finalTarget,
                   calculationMode,
                   isBimesterSummary: true,
                 }
@@ -368,7 +416,7 @@ export default function AdvancedGradePanel() {
       );
 
       setClasses(nextClasses);
-      setMessage("Notas avançadas e fechamento do bimestre salvos com sucesso. Recarregue a tela se o painel antigo ainda não refletir as mudanças.");
+      setMessage("Notas e fechamento bimestral salvos. O painel antigo passará a mostrar o fechamento como nota final do bimestre.");
     } catch (error) {
       console.error("Erro ao salvar notas avançadas", error);
       setMessage("Não foi possível salvar as notas avançadas.");
@@ -378,6 +426,13 @@ export default function AdvancedGradePanel() {
   };
 
   if (!user) return null;
+
+  const calculationHelp =
+    calculationMode === "sum"
+      ? "Soma todas as avaliações lançadas e limita o resultado à nota desejada do bimestre. Ex.: prova + atividade + trabalho até 10 pontos."
+      : calculationMode === "weighted_average"
+        ? "Calcula a média considerando o peso de cada avaliação. Use peso maior para prova e menor para atividades."
+        : "Calcula a média simples das avaliações, convertendo cada uma para a nota desejada do bimestre.";
 
   return (
     <>
@@ -392,12 +447,12 @@ export default function AdvancedGradePanel() {
 
       {open && (
         <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4">
-          <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-950 sm:rounded-3xl">
+          <div className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-950 sm:rounded-3xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-4 dark:border-slate-800">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Notas Avançadas</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Notas+</p>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white">Avaliações e fechamento bimestral</h2>
-                <p className="text-xs text-slate-500">Crie várias notas, some provas e atividades ou gere média ponderada do bimestre.</p>
+                <p className="text-xs text-slate-500">Crie várias notas por aluno, como prova, atividade, projeto, seminário e recuperação.</p>
               </div>
               <button
                 type="button"
@@ -441,7 +496,7 @@ export default function AdvancedGradePanel() {
                     </label>
 
                     <label className="space-y-1 text-xs font-bold uppercase text-slate-500">
-                      Cálculo
+                      Forma de cálculo
                       <select
                         value={calculationMode}
                         onChange={(event) => setCalculationMode(event.target.value as CalculationMode)}
@@ -454,7 +509,7 @@ export default function AdvancedGradePanel() {
                     </label>
 
                     <label className="space-y-1 text-xs font-bold uppercase text-slate-500">
-                      Nota desejada
+                      Nota desejada do bimestre
                       <input
                         value={targetGrade}
                         onChange={(event) => setTargetGrade(event.target.value)}
@@ -465,11 +520,18 @@ export default function AdvancedGradePanel() {
                     </label>
                   </div>
 
+                  <div className="rounded-2xl bg-blue-50 p-3 text-xs font-bold leading-relaxed text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
+                    {calculationHelp}
+                  </div>
+
                   <div className="rounded-2xl border border-slate-200 p-3 dark:border-slate-800">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-sm font-black text-slate-800 dark:text-white">Avaliações do bimestre</h3>
+                      <div>
+                        <h3 className="text-sm font-black text-slate-800 dark:text-white">Instrumentos de avaliação</h3>
+                        <p className="text-xs text-slate-500">Adicione quantas notas quiser no mesmo bimestre.</p>
+                      </div>
                       <div className="flex flex-wrap gap-2">
-                        {['Prova', 'Atividade', 'Trabalho', 'Participação'].map((category) => (
+                        {QUICK_CATEGORIES.map((category) => (
                           <button
                             key={category}
                             type="button"
@@ -480,6 +542,22 @@ export default function AdvancedGradePanel() {
                           </button>
                         ))}
                       </div>
+                    </div>
+
+                    <div className="mb-3 flex flex-col gap-2 rounded-xl bg-slate-50 p-2 dark:bg-slate-900 sm:flex-row">
+                      <input
+                        value={customCategory}
+                        onChange={(event) => setCustomCategory(event.target.value)}
+                        placeholder="Criar outro meio de nota: feira, leitura, debate..."
+                        className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={addCustomAssessment}
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-black uppercase text-white dark:bg-white dark:text-slate-900"
+                      >
+                        + Criar meio
+                      </button>
                     </div>
 
                     <div className="space-y-2">
@@ -502,6 +580,7 @@ export default function AdvancedGradePanel() {
                             onChange={(event) => updateAssessment(assessment.id, "maxPoints", event.target.value)}
                             inputMode="decimal"
                             title="Valor máximo desta avaliação"
+                            placeholder="Máx."
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                           />
                           <input
@@ -509,6 +588,7 @@ export default function AdvancedGradePanel() {
                             onChange={(event) => updateAssessment(assessment.id, "weight", event.target.value)}
                             inputMode="decimal"
                             title="Peso para média ponderada"
+                            placeholder="Peso"
                             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-primary dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                           />
                           <button
@@ -529,8 +609,12 @@ export default function AdvancedGradePanel() {
                         <tr>
                           <th className="sticky left-0 z-10 bg-slate-100 p-3 dark:bg-slate-900">Aluno</th>
                           {assessments.map((assessment) => (
-                            <th key={assessment.id} className="min-w-28 p-3 text-center">{assessment.title || 'Avaliação'}</th>
+                            <th key={assessment.id} className="min-w-32 p-3 text-center">
+                              <span className="block text-slate-700 dark:text-slate-200">{assessment.title || "Avaliação"}</span>
+                              <span className="block text-[10px] normal-case text-slate-400">máx. {formatGrade(assessment.maxPoints)} | peso {formatGrade(assessment.weight)}</span>
+                            </th>
                           ))}
+                          <th className="min-w-28 p-3 text-center text-primary">Soma</th>
                           <th className="min-w-28 p-3 text-center text-primary">Final</th>
                         </tr>
                       </thead>
@@ -554,7 +638,8 @@ export default function AdvancedGradePanel() {
                                 />
                               </td>
                             ))}
-                            <td className="p-3 text-center text-base font-black text-primary">{calculateFinal(student.id)}</td>
+                            <td className="p-3 text-center font-mono text-sm font-black text-slate-500">{formatGrade(getRawTotal(student.id))}</td>
+                            <td className="p-3 text-center font-mono text-lg font-black text-primary">{formatGrade(calculateFinal(student.id))}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -579,7 +664,7 @@ export default function AdvancedGradePanel() {
                 disabled={saving || loading || !activeClass}
                 className="w-full rounded-xl bg-primary py-4 text-sm font-black uppercase tracking-widest text-white shadow-lg disabled:opacity-50"
               >
-                {saving ? "Salvando..." : "Salvar notas e fechamento do bimestre"}
+                {saving ? "Salvando..." : "Salvar avaliações e fechamento do bimestre"}
               </button>
             </div>
           </div>

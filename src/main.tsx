@@ -1,6 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import AdvancedGradePanel from './components/AdvancedGradePanel.tsx';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
@@ -29,5 +30,6 @@ setInterval(() => {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
+    <AdvancedGradePanel />
   </StrictMode>,
 );

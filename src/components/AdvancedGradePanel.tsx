@@ -113,8 +113,9 @@ export default function AdvancedGradePanel() {
       try {
         const userRef = doc(db, "users", user.uid);
         const snap = await getDoc(userRef);
-        const data = snap.exists() ? snap.data() : {};
-        const loadedClasses = safeParseClasses(data.classes) || safeParseClasses(data.classesStr);
+        const data = snap.exists() ? (snap.data() as Record<string, unknown>) : {};
+        const classesField = safeParseClasses(data.classes);
+        const loadedClasses = classesField.length > 0 ? classesField : safeParseClasses(data.classesStr);
         setClasses(loadedClasses);
         setSelectedClassId((current) => current || loadedClasses[0]?.id || "");
         if (loadedClasses.length === 0) {
